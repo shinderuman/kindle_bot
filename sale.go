@@ -1,0 +1,173 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"reflect"
+	"sort"
+	"strings"
+
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	paapi5 "github.com/goark/pa-api"
+	"github.com/goark/pa-api/entity"
+
+	"kindle_bot/utils"
+)
+
+const (
+	youngJump = "ヤングジャンプ"
+)
+
+func main() {
+	if err := utils.InitConfig(); err != nil {
+		log.Println("Error loading configuration:", err)
+		return
+	}
+
+	if utils.IsLambda() {
+		lambda.Start(handler)
+	} else {
+		if err := process(); err != nil {
+			log.Println(err)
+			utils.AlertToSlack(err)
+		}
+	}
+}
+
+func handler(ctx context.Context) (string, error) {
+	return utils.Handler(ctx, process)
+}
+
+func process() error {
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(utils.EnvConfig.S3Region),
+	})
+	if err != nil {
+		return fmt.Errorf("AWS session error: %v", err)
+	}
+
+	client := paapi5.New(
+		paapi5.WithMarketplace(paapi5.LocaleJapan),
+	).CreateClient(utils.EnvConfig.AmazonPartnerTag, utils.EnvConfig.AmazonAccessKey, utils.EnvConfig.AmazonSecretKey, paapi5.WithHttpClient(&http.Client{}))
+
+	var newUnprocessedASINs []utils.KindleBook
+	unprocessedASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3UnprocessedObjectKey)
+	if err != nil {
+		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
+	}
+
+	threshold := calculateThreshold(unprocessedASINs)
+
+	for _, asinChunk := range utils.ChunkedASINs(utils.UniqueASINs(unprocessedASINs), 10) {
+		response, err := utils.GetItems(client, asinChunk)
+		if err != nil {
+			utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err))
+			continue
+		}
+		for _, item := range response.ItemsResult.Items {
+			if item.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+				utils.AlertToSlack(fmt.Errorf(
+					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
+				))
+				continue
+			}
+			ok, conditions := checkConditions(item, threshold, getPreviousPrice(item, unprocessedASINs))
+			if ok {
+				message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
+
+				log.Println(message)
+				status, err := utils.TootMastodon(message)
+				if err != nil {
+					utils.AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err))
+				}
+				if err = utils.PostToSlack(fmt.Sprintf("%s\n\n%s", message, status.URI)); err != nil {
+					utils.AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err))
+				}
+			} else {
+				newUnprocessedASINs = append(newUnprocessedASINs, utils.KindleBook{
+					ASIN:        item.ASIN,
+					Title:       item.ItemInfo.Title.DisplayValue,
+					ReleaseDate: item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
+					Price:       (*item.Offers.Listings)[0].Price.Amount,
+					URL:         item.DetailPageURL,
+				})
+			}
+		}
+	}
+
+	// ReleaseDateの昇順でソート
+	sort.Slice(newUnprocessedASINs, func(i, j int) bool {
+		return newUnprocessedASINs[i].ReleaseDate.Time.Before(newUnprocessedASINs[j].ReleaseDate.Time)
+	})
+
+	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
+		if err := utils.SaveASINs(sess, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
+		}
+		if err := utils.UpdateGist(newUnprocessedASINs); err != nil {
+			return fmt.Errorf("Error update gist: %s", err)
+		}
+	}
+
+	return nil
+}
+
+func calculateThreshold(slice []utils.KindleBook) float64 {
+	var maxPrice float64
+	for _, s := range slice {
+		if s.Price > maxPrice {
+			maxPrice = s.Price
+		}
+	}
+
+	return maxPrice/2 + 1
+}
+
+func checkConditions(item entity.Item, threshold, previousPrice float64) (bool, string) {
+	amount := (*item.Offers.Listings)[0].Price.Amount
+	points := (*item.Offers.Listings)[0].LoyaltyPoints.Points
+	title := item.ItemInfo.Title.DisplayValue
+
+	var conditions []string
+
+	// 値段 一番高い商品 / 2 + 1円より安いか
+	if amount <= threshold && !strings.HasPrefix(title, youngJump) {
+		conditions = append(conditions, fmt.Sprintf("✅値段が半額以下かも %.0f円 (基準の値段 %.0f円)", amount, threshold))
+	}
+
+	// 前回実行時より 151円以上安い
+	priceDrop := previousPrice - amount
+	if priceDrop >= 151 {
+		conditions = append(conditions, fmt.Sprintf("✅前回チェック時より値段が151円以上安い %.0f円", priceDrop))
+	}
+
+	// ポイント 151pt以上
+	if points >= 151 {
+		conditions = append(conditions, fmt.Sprintf("✅ポイント %dpt", points))
+	}
+
+	// ポイント還元 20%以上
+	pointPercentage := float64(points) / float64(amount) * 100
+	if pointPercentage >= 20 {
+		conditions = append(conditions, fmt.Sprintf("✅ポイント還元 %.1f%%", pointPercentage))
+	}
+
+	if len(conditions) > 0 {
+		return true, strings.Join(conditions, " ")
+	}
+	return false, ""
+}
+
+func getPreviousPrice(item entity.Item, slice []utils.KindleBook) float64 {
+	for _, s := range slice {
+		if item.ASIN == s.ASIN {
+			return s.Price
+		}
+	}
+	return 0
+}
