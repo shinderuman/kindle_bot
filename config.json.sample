@@ -1,0 +1,18 @@
+{
+	"s3BucketName": "",
+	"s3UnprocessedObjectKey": "unprocessed_asins.json",
+	"s3PaperBooksObjectKey": "paper_books_asins.json",
+	"s3Region": "ap-northeast-1",
+	"amazonPartnerTag": "shinderuman03-22",
+	"amazonAccessKey": "",
+	"amazonSecretKey": "",
+	"mastodonServer": "https://kenji.asmodeus.jp",
+	"mastodonClientID": "",
+	"mastodonClientSecret": "",
+	"mastodonAccessToken": "",
+	"slackBotToken": "",
+	"slackNoticeChannel": "",
+	"slackErrorChannel": "",
+	"gistID": "",
+	"githubToken": ""
+}
