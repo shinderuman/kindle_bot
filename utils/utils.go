@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +34,8 @@ func InitConfig() error {
 			S3BucketName:           os.Getenv("S3_BUCKET_NAME"),
 			S3UnprocessedObjectKey: os.Getenv("S3_UNPROCESSED_OBJECT_KEY"),
 			S3PaperBooksObjectKey:  os.Getenv("S3_PAPER_BOOKS_OBJECT_KEY"),
+			S3OngoingObjectKey:     os.Getenv("S3_ONGOING_OBJECT_KEY"),
+			S3NotifiedObjectKey:    os.Getenv("S3_NOTIFIED_OBJECT_KEY"),
 			S3Region:               os.Getenv("S3_REGION"),
 			AmazonPartnerTag:       os.Getenv("AMAZON_PARTNER_TAG"),
 			AmazonAccessKey:        os.Getenv("AMAZON_ACCESS_KEY"),
@@ -67,14 +68,25 @@ func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
-func Handler(ctx context.Context, callback func() error) (string, error) {
-	if err := callback(); err != nil {
-		log.Println(err)
-		AlertToSlack(err, true)
-		return "", err
+func InitSession() (*session.Session, error) {
+	sess, err := session.NewSession(&aws.Config{
+		Region: aws.String(EnvConfig.S3Region),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AWS session: %v", err)
 	}
-	_, file, _, _ := runtime.Caller(1)
-	return fmt.Sprintf("Processing complete: %s", file), nil
+	return sess, nil
+}
+
+func CreateClient() paapi5.Client {
+	return paapi5.New(
+		paapi5.WithMarketplace(paapi5.LocaleJapan),
+	).CreateClient(
+		EnvConfig.AmazonPartnerTag,
+		EnvConfig.AmazonAccessKey,
+		EnvConfig.AmazonSecretKey,
+		paapi5.WithHttpClient(&http.Client{}),
+	)
 }
 
 func FetchASINs(sess *session.Session, objectKey string) ([]KindleBook, error) {
@@ -102,28 +114,32 @@ func FetchASINs(sess *session.Session, objectKey string) ([]KindleBook, error) {
 	return ASINs, nil
 }
 
-func UniqueASINs(slice []KindleBook) []string {
+func UniqueASINs(slice []KindleBook) []KindleBook {
 	seen := make(map[string]struct{})
-	result := []string{}
+	result := []KindleBook{}
 
 	for _, s := range slice {
 		if _, exists := seen[s.ASIN]; !exists {
 			seen[s.ASIN] = struct{}{}
-			result = append(result, s.ASIN)
+			result = append(result, s)
 		}
 	}
 
 	return result
 }
 
-func ChunkedASINs(slice []string, size int) [][]string {
+func ChunkedASINs(books []KindleBook, size int) [][]string {
 	var chunks [][]string
-	for i := 0; i < len(slice); i += size {
+	for i := 0; i < len(books); i += size {
 		end := i + size
-		if end > len(slice) {
-			end = len(slice)
+		if end > len(books) {
+			end = len(books)
 		}
-		chunks = append(chunks, slice[i:end])
+		var chunk []string
+		for _, book := range books[i:end] {
+			chunk = append(chunk, book.ASIN)
+		}
+		chunks = append(chunks, chunk)
 	}
 	return chunks
 }
@@ -262,7 +278,7 @@ func TootMastodon(message string) (*mastodon.Status, error) {
 	return c.PostStatus(context.Background(), &mastodon.Toot{Status: message, Visibility: "public"})
 }
 
-func UpdateGist(books []KindleBook) error {
+func UpdateGist(books []KindleBook, filename string) error {
 	url := fmt.Sprintf("https://api.github.com/gists/%s", EnvConfig.GistID)
 
 	var lines []string
@@ -274,7 +290,7 @@ func UpdateGist(books []KindleBook) error {
 
 	payload := map[string]interface{}{
 		"files": map[string]interface{}{
-			"わいのセールになってほしい本.md": map[string]string{
+			filename: map[string]string{
 				"content": markdown,
 			},
 		},
