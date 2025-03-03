@@ -5,14 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"net/http"
 	"reflect"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
 	"kindle_bot/utils"
@@ -27,28 +23,23 @@ func main() {
 	if utils.IsLambda() {
 		lambda.Start(handler)
 	} else {
-		if err := process(); err != nil {
-			log.Println(err)
+		if _, err := handler(context.Background()); err != nil {
 			utils.AlertToSlack(err, true)
 		}
 	}
 }
 
 func handler(ctx context.Context) (string, error) {
-	return utils.Handler(ctx, process)
+	return "Processing complete: sale.go", process()
 }
 
 func process() error {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(utils.EnvConfig.S3Region),
-	})
+	sess, err := utils.InitSession()
 	if err != nil {
-		return fmt.Errorf("AWS session error: %v", err)
+		return err
 	}
 
-	client := paapi5.New(
-		paapi5.WithMarketplace(paapi5.LocaleJapan),
-	).CreateClient(utils.EnvConfig.AmazonPartnerTag, utils.EnvConfig.AmazonAccessKey, utils.EnvConfig.AmazonSecretKey, paapi5.WithHttpClient(&http.Client{}))
+	client := utils.CreateClient()
 
 	newUnprocessedASINs := []utils.KindleBook{}
 	unprocessedASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3UnprocessedObjectKey)
@@ -62,7 +53,7 @@ func process() error {
 			for _, asin := range asinChunk {
 				newUnprocessedASINs = append(newUnprocessedASINs, utils.GetBook(asin, unprocessedASINs))
 			}
-			utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
 		for _, item := range response.ItemsResult.Items {
@@ -103,9 +94,9 @@ func process() error {
 	utils.SortByReleaseDate(newUnprocessedASINs)
 	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
 		if err := utils.SaveASINs(sess, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
+			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
-		if err := utils.UpdateGist(newUnprocessedASINs); err != nil {
+		if err := utils.UpdateGist(newUnprocessedASINs, "わいのセールになってほしい本.md"); err != nil {
 			return fmt.Errorf("Error update gist: %s", err)
 		}
 	}

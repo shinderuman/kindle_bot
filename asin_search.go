@@ -4,15 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
@@ -28,28 +24,23 @@ func main() {
 	if utils.IsLambda() {
 		lambda.Start(handler)
 	} else {
-		if err := process(); err != nil {
-			log.Println(err)
+		if _, err := handler(context.Background()); err != nil {
 			utils.AlertToSlack(err, true)
 		}
 	}
 }
 
 func handler(ctx context.Context) (string, error) {
-	return utils.Handler(ctx, process)
+	return "Processing complete: asin_search.go", process()
 }
 
 func process() error {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(utils.EnvConfig.S3Region),
-	})
+	sess, err := utils.InitSession()
 	if err != nil {
-		return fmt.Errorf("AWS session error: %v", err)
+		return err
 	}
 
-	client := paapi5.New(
-		paapi5.WithMarketplace(paapi5.LocaleJapan),
-	).CreateClient(utils.EnvConfig.AmazonPartnerTag, utils.EnvConfig.AmazonAccessKey, utils.EnvConfig.AmazonSecretKey, paapi5.WithHttpClient(&http.Client{}))
+	client := utils.CreateClient()
 
 	paperBooksASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3PaperBooksObjectKey)
 	if err != nil {
@@ -64,7 +55,7 @@ func process() error {
 			for _, asin := range asinChunk {
 				newPaperBooksASINs = append(newPaperBooksASINs, utils.GetBook(asin, paperBooksASINs))
 			}
-			utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
 
@@ -83,7 +74,6 @@ func process() error {
 				Search(query.Keywords, "Kindle版").
 				EnableItemInfo().
 				EnableOffers()
-			// res, err := utils.SearchItems(client, cleanTitle(i.ItemInfo.Title.DisplayValue))
 			res, err := utils.SearchItems(client, q)
 			if err != nil {
 				utils.AlertToSlack(fmt.Errorf("Error search items: %v", err), true)
@@ -135,14 +125,14 @@ func process() error {
 		utils.SortByReleaseDate(unprocessedASINs)
 
 		if err := utils.SaveASINs(sess, unprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
+			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
 	}
 
 	utils.SortByReleaseDate(newPaperBooksASINs)
 	if !reflect.DeepEqual(paperBooksASINs, newPaperBooksASINs) {
 		if err := utils.SaveASINs(sess, newPaperBooksASINs, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
-			return fmt.Errorf("Error saving paper books ASINs ObjectKey: %s\nError: %v", err)
+			return fmt.Errorf("Error saving paper books ASINs: %v", err)
 		}
 	}
 
