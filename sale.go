@@ -18,10 +18,6 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
-	youngJump = "ヤングジャンプ"
-)
-
 func main() {
 	if err := utils.InitConfig(); err != nil {
 		log.Println("Error loading configuration:", err)
@@ -60,8 +56,6 @@ func process() error {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
-	threshold := calculateThreshold(unprocessedASINs)
-
 	for _, asinChunk := range utils.ChunkedASINs(utils.UniqueASINs(unprocessedASINs), 10) {
 		response, err := utils.GetItems(client, asinChunk)
 		if err != nil {
@@ -76,7 +70,12 @@ func process() error {
 				))
 				continue
 			}
-			ok, conditions := checkConditions(item, threshold, getPreviousPrice(item, unprocessedASINs))
+			maxPrice := getMaxPrice(item, unprocessedASINs)
+			if (*item.Offers.Listings)[0].Price.Amount >= maxPrice {
+				maxPrice = (*item.Offers.Listings)[0].Price.Amount
+			}
+
+			ok, conditions := checkConditions(item, maxPrice)
 			if ok {
 				message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
 
@@ -90,11 +89,12 @@ func process() error {
 				}
 			} else {
 				newUnprocessedASINs = append(newUnprocessedASINs, utils.KindleBook{
-					ASIN:        item.ASIN,
-					Title:       item.ItemInfo.Title.DisplayValue,
-					ReleaseDate: item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-					Price:       (*item.Offers.Listings)[0].Price.Amount,
-					URL:         item.DetailPageURL,
+					ASIN:         item.ASIN,
+					Title:        item.ItemInfo.Title.DisplayValue,
+					ReleaseDate:  item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
+					CurrentPrice: (*item.Offers.Listings)[0].Price.Amount,
+					MaxPrice:     maxPrice,
+					URL:          item.DetailPageURL,
 				})
 			}
 		}
@@ -117,33 +117,16 @@ func process() error {
 	return nil
 }
 
-func calculateThreshold(slice []utils.KindleBook) float64 {
-	var maxPrice float64
-	for _, s := range slice {
-		if s.Price > maxPrice {
-			maxPrice = s.Price
-		}
-	}
-
-	return maxPrice/2 + 1
-}
-
-func checkConditions(item entity.Item, threshold, previousPrice float64) (bool, string) {
+func checkConditions(item entity.Item, maxPrice float64) (bool, string) {
 	amount := (*item.Offers.Listings)[0].Price.Amount
 	points := (*item.Offers.Listings)[0].LoyaltyPoints.Points
-	title := item.ItemInfo.Title.DisplayValue
 
 	var conditions []string
 
-	// 値段 一番高い商品 / 2 + 1円より安いか
-	if amount <= threshold && !strings.HasPrefix(title, youngJump) {
-		conditions = append(conditions, fmt.Sprintf("✅値段が半額以下かも %.0f円 (基準の値段 %.0f円)", amount, threshold))
-	}
-
-	// 前回実行時より 151円以上安い
-	priceDrop := previousPrice - amount
+	// 最大の値段より 151円以上安い
+	priceDrop := maxPrice - amount
 	if priceDrop >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅前回チェック時より値段が151円以上安い %.0f円", priceDrop))
+		conditions = append(conditions, fmt.Sprintf("✅値段が151円以上安い %.0f円", priceDrop))
 	}
 
 	// ポイント 151pt以上
@@ -163,10 +146,10 @@ func checkConditions(item entity.Item, threshold, previousPrice float64) (bool, 
 	return false, ""
 }
 
-func getPreviousPrice(item entity.Item, slice []utils.KindleBook) float64 {
+func getMaxPrice(item entity.Item, slice []utils.KindleBook) float64 {
 	for _, s := range slice {
 		if item.ASIN == s.ASIN {
-			return s.Price
+			return s.MaxPrice
 		}
 	}
 	return 0

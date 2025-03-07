@@ -87,11 +87,12 @@ func process() error {
 						log.Println(message)
 
 						newUnprocessedASINs = append(newUnprocessedASINs, utils.KindleBook{
-							ASIN:        j.ASIN,
-							Title:       j.ItemInfo.Title.DisplayValue,
-							ReleaseDate: j.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-							Price:       (*j.Offers.Listings)[0].Price.Amount,
-							URL:         j.DetailPageURL,
+							ASIN:         j.ASIN,
+							Title:        j.ItemInfo.Title.DisplayValue,
+							ReleaseDate:  j.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
+							CurrentPrice: (*j.Offers.Listings)[0].Price.Amount,
+							MaxPrice:     (*j.Offers.Listings)[0].Price.Amount,
+							URL:          j.DetailPageURL,
 						})
 						foundKindle = true
 					}
@@ -99,11 +100,12 @@ func process() error {
 			}
 			if !foundKindle {
 				newPaperBooksASINs = append(newPaperBooksASINs, utils.KindleBook{
-					ASIN:        i.ASIN,
-					Title:       i.ItemInfo.Title.DisplayValue,
-					ReleaseDate: i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-					Price:       (*i.Offers.Listings)[0].Price.Amount,
-					URL:         i.DetailPageURL,
+					ASIN:         i.ASIN,
+					Title:        i.ItemInfo.Title.DisplayValue,
+					ReleaseDate:  i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
+					CurrentPrice: (*i.Offers.Listings)[0].Price.Amount,
+					MaxPrice:     (*i.Offers.Listings)[0].Price.Amount,
+					URL:          i.DetailPageURL,
 				})
 			}
 		}

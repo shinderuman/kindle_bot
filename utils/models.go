@@ -24,9 +24,10 @@ type Config struct {
 }
 
 type KindleBook struct {
-	ASIN        string      `json:"ASIN"`
-	Title       string      `json:"Title"`
-	ReleaseDate entity.Date `json:"ReleaseDate"`
-	Price       float64     `json:"Price"`
-	URL         string      `json:"URL"`
+	ASIN         string      `json:"ASIN"`
+	Title        string      `json:"Title"`
+	ReleaseDate  entity.Date `json:"ReleaseDate"`
+	CurrentPrice float64     `json:"CurrentPrice"`
+	MaxPrice     float64     `json:"MaxPrice"`
+	URL          string      `json:"URL"`
 }
