@@ -126,7 +126,7 @@ func checkConditions(item entity.Item, maxPrice float64) (bool, string) {
 	// 最大の値段より 151円以上安い
 	priceDrop := maxPrice - amount
 	if priceDrop >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅値段が151円以上安い %.0f円", priceDrop))
+		conditions = append(conditions, fmt.Sprintf("✅価格差 %.0f円", priceDrop))
 	}
 
 	// ポイント 151pt以上
