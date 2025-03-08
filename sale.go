@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"reflect"
 	"sort"
@@ -70,11 +71,8 @@ func process() error {
 				))
 				continue
 			}
-			maxPrice := getMaxPrice(item, unprocessedASINs)
-			if (*item.Offers.Listings)[0].Price.Amount >= maxPrice {
-				maxPrice = (*item.Offers.Listings)[0].Price.Amount
-			}
 
+			maxPrice := math.Max(getMaxPrice(item, unprocessedASINs), (*item.Offers.Listings)[0].Price.Amount)
 			ok, conditions := checkConditions(item, maxPrice)
 			if ok {
 				message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
