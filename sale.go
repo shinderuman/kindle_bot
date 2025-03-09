@@ -97,9 +97,8 @@ func process() error {
 		}
 	}
 
-	utils.SortByReleaseDate(newUnprocessedASINs)
-
 	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
+		utils.SortByReleaseDate(newUnprocessedASINs)
 		if err := utils.SaveASINs(sess, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
 		}
