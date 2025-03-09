@@ -7,7 +7,6 @@ import (
 	"math"
 	"net/http"
 	"reflect"
-	"sort"
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -98,10 +97,7 @@ func process() error {
 		}
 	}
 
-	// ReleaseDateの昇順でソート
-	sort.Slice(newUnprocessedASINs, func(i, j int) bool {
-		return newUnprocessedASINs[i].ReleaseDate.Time.Before(newUnprocessedASINs[j].ReleaseDate.Time)
-	})
+	utils.SortByReleaseDate(newUnprocessedASINs)
 
 	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
 		if err := utils.SaveASINs(sess, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {

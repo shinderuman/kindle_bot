@@ -123,6 +123,7 @@ func process() error {
 			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
 		}
 
+		utils.SortByReleaseDate(newPaperBooksASINs)
 		if err := utils.SaveASINs(sess, newPaperBooksASINs, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("Error saving paper books ASINs ObjectKey: %s\nError: %v", err)
 		}

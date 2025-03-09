@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -280,4 +281,10 @@ func UpdateGist(ASINs []KindleBook) error {
 	defer resp.Body.Close()
 
 	return nil
+}
+
+func SortByReleaseDate(books []KindleBook) {
+	sort.Slice(books, func(i, j int) bool {
+		return books[i].ReleaseDate.Time.Before(books[j].ReleaseDate.Time)
+	})
 }
