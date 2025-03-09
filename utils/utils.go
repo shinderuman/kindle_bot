@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -72,7 +73,8 @@ func Handler(ctx context.Context, callback func() error) (string, error) {
 		AlertToSlack(err)
 		return "", err
 	}
-	return "Processing complete", nil
+	_, file, _, _ := runtime.Caller(1)
+	return fmt.Sprintf("Processing complete: %s", file), nil
 }
 
 func FetchASINs(sess *session.Session, objectKey string) ([]KindleBook, error) {
