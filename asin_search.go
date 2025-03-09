@@ -119,6 +119,7 @@ func process() error {
 
 		unprocessedASINs = append(unprocessedASINs, newUnprocessedASINs...)
 
+		utils.SortByReleaseDate(unprocessedASINs)
 		if err := utils.SaveASINs(sess, unprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs ObjectKey: %s\nError: %v", err)
 		}

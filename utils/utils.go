@@ -126,6 +126,18 @@ func ChunkedASINs(slice []string, size int) [][]string {
 	return chunks
 }
 
+func SortByReleaseDate(books []KindleBook) {
+	sort.Slice(books, func(i, j int) bool {
+		if books[i].ReleaseDate.Time.Before(books[j].ReleaseDate.Time) {
+			return true
+		} else if books[i].ReleaseDate.Time.Equal(books[j].ReleaseDate.Time) {
+			// ReleaseDate が同じ場合は Title で比較
+			return books[i].Title < books[j].Title
+		}
+		return false
+	})
+}
+
 func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error) {
 	q := query.NewGetItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
 		ASINs(asinChunk).
@@ -167,7 +179,6 @@ func SearchItems(client paapi5.Client, title string) (*entity.Response, error) {
 }
 
 func PrintPrettyJSON(res *entity.Response) {
-	// 整形して出力
 	prettyJSON, err := json.MarshalIndent(res, "", "  ")
 	if err != nil {
 		return
@@ -281,10 +292,4 @@ func UpdateGist(ASINs []KindleBook) error {
 	defer resp.Body.Close()
 
 	return nil
-}
-
-func SortByReleaseDate(books []KindleBook) {
-	sort.Slice(books, func(i, j int) bool {
-		return books[i].ReleaseDate.Time.Before(books[j].ReleaseDate.Time)
-	})
 }
