@@ -35,14 +35,14 @@ func handler(ctx context.Context) (string, error) {
 }
 
 func process() error {
-	sess, err := utils.InitSession()
+	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
 	}
 
 	client := utils.CreateClient()
 
-	paperBooksASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3PaperBooksObjectKey)
+	paperBooksASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching paper books ASINs: %v", err)
 	}
@@ -116,7 +116,7 @@ func process() error {
 	}
 
 	if len(newUnprocessedASINs) > 0 {
-		unprocessedASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3UnprocessedObjectKey)
+		unprocessedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 		if err != nil {
 			return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 		}
@@ -124,14 +124,14 @@ func process() error {
 		unprocessedASINs = append(unprocessedASINs, newUnprocessedASINs...)
 		utils.SortByReleaseDate(unprocessedASINs)
 
-		if err := utils.SaveASINs(sess, unprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		if err := utils.SaveASINs(cfg, unprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
 	}
 
 	utils.SortByReleaseDate(newPaperBooksASINs)
 	if !reflect.DeepEqual(paperBooksASINs, newPaperBooksASINs) {
-		if err := utils.SaveASINs(sess, newPaperBooksASINs, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+		if err := utils.SaveASINs(cfg, newPaperBooksASINs, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("Error saving paper books ASINs: %v", err)
 		}
 	}

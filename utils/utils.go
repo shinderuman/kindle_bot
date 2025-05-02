@@ -16,9 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
@@ -30,25 +32,33 @@ var EnvConfig Config
 
 func InitConfig() error {
 	if IsLambda() {
+		ctx := context.Background()
+		prefix := "/myapp" // SSMパラメータの共通プレフィックス（例）
+
+		paramMap, err := getSSMParameters(ctx, prefix)
+		if err != nil {
+			return err
+		}
+
 		EnvConfig = Config{
-			S3BucketName:           os.Getenv("S3_BUCKET_NAME"),
-			S3UnprocessedObjectKey: os.Getenv("S3_UNPROCESSED_OBJECT_KEY"),
-			S3PaperBooksObjectKey:  os.Getenv("S3_PAPER_BOOKS_OBJECT_KEY"),
-			S3OngoingObjectKey:     os.Getenv("S3_ONGOING_OBJECT_KEY"),
-			S3NotifiedObjectKey:    os.Getenv("S3_NOTIFIED_OBJECT_KEY"),
-			S3Region:               os.Getenv("S3_REGION"),
-			AmazonPartnerTag:       os.Getenv("AMAZON_PARTNER_TAG"),
-			AmazonAccessKey:        os.Getenv("AMAZON_ACCESS_KEY"),
-			AmazonSecretKey:        os.Getenv("AMAZON_SECRET_KEY"),
-			MastodonServer:         os.Getenv("MASTODON_SERVER"),
-			MastodonClientID:       os.Getenv("MASTODON_CLIENT_ID"),
-			MastodonClientSecret:   os.Getenv("MASTODON_CLIENT_SECRETT"),
-			MastodonAccessToken:    os.Getenv("MASTODON_ACCESS_TOKEN"),
-			SlackBotToken:          os.Getenv("SLACK_BOT_TOKEN"),
-			SlackNoticeChannel:     os.Getenv("SLACK_NOTICE_CHANNEL"),
-			SlackErrorChannel:      os.Getenv("SLACK_ERROR_CHANNEL"),
-			GistID:                 os.Getenv("GIST_ID"),
-			GitHubToken:            os.Getenv("GITHUB_TOKEN"),
+			S3BucketName:           paramMap["S3_BUCKET_NAME"],
+			S3UnprocessedObjectKey: paramMap["S3_UNPROCESSED_OBJECT_KEY"],
+			S3PaperBooksObjectKey:  paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
+			S3OngoingObjectKey:     paramMap["S3_ONGOING_OBJECT_KEY"],
+			S3NotifiedObjectKey:    paramMap["S3_NOTIFIED_OBJECT_KEY"],
+			S3Region:               paramMap["S3_REGION"],
+			AmazonPartnerTag:       paramMap["AMAZON_PARTNER_TAG"],
+			AmazonAccessKey:        paramMap["AMAZON_ACCESS_KEY"],
+			AmazonSecretKey:        paramMap["AMAZON_SECRET_KEY"],
+			MastodonServer:         paramMap["MASTODON_SERVER"],
+			MastodonClientID:       paramMap["MASTODON_CLIENT_ID"],
+			MastodonClientSecret:   paramMap["MASTODON_CLIENT_SECRET"],
+			MastodonAccessToken:    paramMap["MASTODON_ACCESS_TOKEN"],
+			SlackBotToken:          paramMap["SLACK_BOT_TOKEN"],
+			SlackNoticeChannel:     paramMap["SLACK_NOTICE_CHANNEL"],
+			SlackErrorChannel:      paramMap["SLACK_ERROR_CHANNEL"],
+			GistID:                 paramMap["GIST_ID"],
+			GitHubToken:            paramMap["GITHUB_TOKEN"],
 		}
 	} else {
 		data, err := ioutil.ReadFile("config.json")
@@ -64,18 +74,56 @@ func InitConfig() error {
 	return nil
 }
 
+func getSSMParameters(ctx context.Context, prefix string) (map[string]string, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	client := ssm.NewFromConfig(cfg)
+
+	params := make(map[string]string)
+	var nextToken *string
+
+	for {
+		input := &ssm.GetParametersByPathInput{
+			Path:           aws.String(prefix),
+			WithDecryption: aws.Bool(true),
+			Recursive:      aws.Bool(true),
+			NextToken:      nextToken,
+		}
+
+		output, err := client.GetParametersByPath(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, param := range output.Parameters {
+			key := strings.TrimPrefix(*param.Name, prefix+"/")
+			params[key] = *param.Value
+		}
+
+		if output.NextToken == nil {
+			break
+		}
+		nextToken = output.NextToken
+	}
+
+	return params, nil
+}
+
 func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
-func InitSession() (*session.Session, error) {
-	sess, err := session.NewSession(&aws.Config{
-		Region: aws.String(EnvConfig.S3Region),
-	})
+func InitAWSConfig() (aws.Config, error) {
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(EnvConfig.S3Region),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AWS session: %v", err)
+		return aws.Config{}, fmt.Errorf("failed to load AWS config: %v", err)
 	}
-	return sess, nil
+	return cfg, nil
 }
 
 func CreateClient() paapi5.Client {
@@ -89,13 +137,15 @@ func CreateClient() paapi5.Client {
 	)
 }
 
-func FetchASINs(sess *session.Session, objectKey string) ([]KindleBook, error) {
-	svc := s3.New(sess)
+func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
+	client := s3.NewFromConfig(cfg)
 
-	resp, err := svc.GetObject(&s3.GetObjectInput{
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(EnvConfig.S3BucketName),
 		Key:    aws.String(objectKey),
-	})
+	}
+
+	resp, err := client.GetObject(context.TODO(), input)
 	if err != nil {
 		return nil, err
 	}
@@ -225,19 +275,19 @@ func isRateLimitError(err error) bool {
 	return strings.Contains(err.Error(), "bad HTTP status: status 429")
 }
 
-func SaveASINs(sess *session.Session, ASINs []KindleBook, objectKey string) error {
-	svc := s3.New(sess)
+func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
+	client := s3.NewFromConfig(cfg)
 
 	prettyJSON, err := json.MarshalIndent(ASINs, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	_, err = svc.PutObject(&s3.PutObjectInput{
+	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket:      aws.String(EnvConfig.S3BucketName),
 		Key:         aws.String(objectKey),
-		Body:        aws.ReadSeekCloser(strings.NewReader(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))),
-		ACL:         aws.String("private"),
+		Body:        strings.NewReader(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&")),
+		ACL:         types.ObjectCannedACLPrivate,
 		ContentType: aws.String("application/json"),
 	})
 	return err

@@ -34,7 +34,7 @@ func handler(ctx context.Context) (string, error) {
 }
 
 func process() error {
-	sess, err := utils.InitSession()
+	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func process() error {
 	client := utils.CreateClient()
 
 	newUnprocessedASINs := []utils.KindleBook{}
-	unprocessedASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3UnprocessedObjectKey)
+	unprocessedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
@@ -93,7 +93,7 @@ func process() error {
 
 	utils.SortByReleaseDate(newUnprocessedASINs)
 	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
-		if err := utils.SaveASINs(sess, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		if err := utils.SaveASINs(cfg, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
 		if err := utils.UpdateGist(newUnprocessedASINs, "わいのセールになってほしい本.md"); err != nil {
