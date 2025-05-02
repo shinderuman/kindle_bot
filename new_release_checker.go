@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
 	"kindle_bot/utils"
@@ -34,7 +33,7 @@ func handler(ctx context.Context) (string, error) {
 }
 
 func process() error {
-	sess, err := utils.InitSession()
+	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
 	}
@@ -44,12 +43,12 @@ func process() error {
 	now := time.Now()
 
 	newlyNotifiedASINs := []utils.KindleBook{}
-	notifiedASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3NotifiedObjectKey)
+	notifiedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching notified ASINs: %v", err)
 	}
 
-	ongoingASINs, err := utils.FetchASINs(sess, utils.EnvConfig.S3OngoingObjectKey)
+	ongoingASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3OngoingObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching ongoing ASINs: %v", err)
 	}
@@ -81,12 +80,24 @@ func process() error {
 
 		if res.SearchResult != nil {
 			for _, i := range res.SearchResult.Items {
+				if _, exists := notifiedMap[i.ASIN]; exists {
+					continue
+				}
+
+				if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+					continue
+				}
+
+				if strings.Contains(i.ItemInfo.Title.DisplayValue, "分冊") {
+					continue
+				}
+
 				if book.ReleaseDate.Before(i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Time) {
 					book.ReleaseDate = i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
 					updated = true
 				}
 
-				if !shouldNotify(i, notifiedMap, now) {
+				if i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
 					continue
 				}
 
@@ -125,14 +136,14 @@ func process() error {
 	if len(newlyNotifiedASINs) > 0 {
 		notifiedASINs = append(notifiedASINs, newlyNotifiedASINs...)
 		utils.SortByReleaseDate(notifiedASINs)
-		if err := utils.SaveASINs(sess, notifiedASINs, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+		if err := utils.SaveASINs(cfg, notifiedASINs, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
 	}
 
 	if updated {
 		utils.SortByReleaseDate(ongoingASINs)
-		if err := utils.SaveASINs(sess, ongoingASINs, utils.EnvConfig.S3OngoingObjectKey); err != nil {
+		if err := utils.SaveASINs(cfg, ongoingASINs, utils.EnvConfig.S3OngoingObjectKey); err != nil {
 			return fmt.Errorf("Error saving updated ongoing ASINs: %v", err)
 		}
 		if err := utils.UpdateGist(ongoingASINs, "新刊チェック中の本.md"); err != nil {
@@ -141,17 +152,4 @@ func process() error {
 	}
 
 	return nil
-}
-
-func shouldNotify(item entity.Item, notifiedMap map[string]struct{}, now time.Time) bool {
-	if _, exists := notifiedMap[item.ASIN]; exists {
-		return false
-	}
-	if item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
-		return false
-	}
-	if strings.Contains(item.ItemInfo.Title.DisplayValue, "分冊") {
-		return false
-	}
-	return true
 }
