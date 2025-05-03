@@ -74,8 +74,7 @@ func process() error {
 
 		res, err := utils.SearchItems(client, q)
 		if err != nil {
-			// utils.AlertToSlack(fmt.Errorf("Error search items: %v", err), false)
-			continue
+			return fmt.Errorf("Error search items: %v", err)
 		}
 
 		if res.SearchResult != nil {
