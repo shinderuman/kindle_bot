@@ -2,16 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
 	"kindle_bot/utils"
 )
+
+type Author struct {
+	Name string `json:"Name"`
+	URL  string `json:"URL"`
+}
 
 func main() {
 	if err := utils.InitConfig(); err != nil {
@@ -42,31 +49,36 @@ func process() error {
 
 	now := time.Now()
 
-	newlyNotifiedASINs := []utils.KindleBook{}
 	notifiedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching notified ASINs: %v", err)
 	}
 
-	ongoingASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3OngoingObjectKey)
+	notifiedMap := make(map[string]utils.KindleBook)
+	for _, book := range notifiedASINs {
+		if book.ReleaseDate.After(now) {
+			notifiedMap[book.ASIN] = book
+		}
+	}
+
+	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching ongoing ASINs: %v", err)
+		return fmt.Errorf("Error fetching authors file: %v", err)
 	}
 
-	notifiedMap := make(map[string]struct{})
-	for _, n := range notifiedASINs {
-		notifiedMap[n.ASIN] = struct{}{}
+	var authors []Author
+	if err := json.Unmarshal(body, &authors); err != nil {
+		return err
 	}
 
-	updated := false
-	ongoingASINs = utils.UniqueASINs(ongoingASINs)
-	for i := range ongoingASINs {
-		book := &ongoingASINs[i]
-		log.Println(book.Title)
+	start := time.Now()
+
+	hasUpdate := false
+	for i, author := range authors {
+		log.Printf("%04d / %04d %s\n", i+1, len(authors), author.Name)
 
 		q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
-			Search(query.Title, book.Title).
-			Search(query.Keywords, "Kindle版").
+			Search(query.Keywords, fmt.Sprintf("Kindle版 %s", author.Name)).
 			Search(query.SearchIndex, "KindleStore").
 			Search(query.SortBy, "NewestArrivals").
 			EnableItemInfo().
@@ -79,29 +91,13 @@ func process() error {
 
 		if res.SearchResult != nil {
 			for _, i := range res.SearchResult.Items {
-				if _, exists := notifiedMap[i.ASIN]; exists {
+				if shouldSkip(i, notifiedMap, now) {
 					continue
 				}
 
-				if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
-					continue
-				}
-
-				if strings.Contains(i.ItemInfo.Title.DisplayValue, "分冊") {
-					continue
-				}
-
-				if book.ReleaseDate.Before(i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Time) {
-					book.ReleaseDate = i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
-					updated = true
-				}
-
-				if i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
-					continue
-				}
-
-				message := fmt.Sprintf("新刊予定があります: %s\n発売日: %s\n%s",
+				message := fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\n%s",
 					i.ItemInfo.Title.DisplayValue,
+					author.Name,
 					i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
 					i.DetailPageURL,
 				)
@@ -112,18 +108,18 @@ func process() error {
 					continue
 				}
 
-				newlyNotifiedASINs = append(newlyNotifiedASINs, utils.KindleBook{
+				hasUpdate = true
+				notifiedMap[i.ASIN] = utils.KindleBook{
 					ASIN:         i.ASIN,
 					Title:        i.ItemInfo.Title.DisplayValue,
 					ReleaseDate:  i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
 					CurrentPrice: (*i.Offers.Listings)[0].Price.Amount,
 					MaxPrice:     (*i.Offers.Listings)[0].Price.Amount,
 					URL:          i.DetailPageURL,
-				})
-				notifiedMap[i.ASIN] = struct{}{}
+				}
 			}
 		} else {
-			message := fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", book.Title, book.URL)
+			message := fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL)
 			log.Println(message)
 
 			if err := utils.PostToSlack(message); err != nil {
@@ -132,23 +128,51 @@ func process() error {
 		}
 	}
 
-	if len(newlyNotifiedASINs) > 0 {
-		notifiedASINs = append(notifiedASINs, newlyNotifiedASINs...)
-		utils.SortByReleaseDate(notifiedASINs)
-		if err := utils.SaveASINs(cfg, notifiedASINs, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+	elapsed := time.Since(start)
+	log.Printf("処理時間: %.2f 分\n", elapsed.Minutes())
+
+	if hasUpdate {
+		var finalASINs []utils.KindleBook
+		for _, book := range notifiedMap {
+			finalASINs = append(finalASINs, book)
+		}
+		utils.SortByReleaseDate(finalASINs)
+		if err := utils.SaveASINs(cfg, finalASINs, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
 			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 		}
 	}
 
-	if updated {
-		utils.SortByReleaseDate(ongoingASINs)
-		if err := utils.SaveASINs(cfg, ongoingASINs, utils.EnvConfig.S3OngoingObjectKey); err != nil {
-			return fmt.Errorf("Error saving updated ongoing ASINs: %v", err)
-		}
-		if err := utils.UpdateGist(ongoingASINs, "新刊チェック中の本.md"); err != nil {
-			return fmt.Errorf("Error update gist: %s", err)
-		}
+	return nil
+}
+
+func shouldSkip(i entity.Item, notifiedMap map[string]utils.KindleBook, now time.Time) bool {
+	if i.ItemInfo.ProductInfo.ReleaseDate == nil {
+		return true
 	}
 
-	return nil
+	if _, exists := notifiedMap[i.ASIN]; exists {
+		return true
+	}
+
+	if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+		return true
+	}
+
+	if strings.Contains(i.ItemInfo.Title.DisplayValue, "分冊版") {
+		return true
+	}
+
+	if strings.Contains(i.ItemInfo.Title.DisplayValue, "連載版") {
+		return true
+	}
+
+	if strings.Contains(i.ItemInfo.Title.DisplayValue, "アンソロジー") {
+		return true
+	}
+
+	if i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
+		return true
+	}
+
+	return false
 }

@@ -9,6 +9,7 @@ type Config struct {
 	S3UnprocessedObjectKey string `json:"S3UnprocessedObjectKey"`
 	S3PaperBooksObjectKey  string `json:"S3PaperBooksObjectKey"`
 	S3OngoingObjectKey     string `json:"S3OngoingObjectKey"`
+	S3AuthorsObjectKey     string `json:"S3AuthorsObjectKey"`
 	S3NotifiedObjectKey    string `json:"S3NotifiedObjectKey"`
 	S3Region               string `json:"S3Region"`
 	AmazonPartnerTag       string `json:"AmazonPartnerTag"`
