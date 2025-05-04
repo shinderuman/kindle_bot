@@ -45,6 +45,7 @@ func InitConfig() error {
 			S3UnprocessedObjectKey: paramMap["S3_UNPROCESSED_OBJECT_KEY"],
 			S3PaperBooksObjectKey:  paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
 			S3OngoingObjectKey:     paramMap["S3_ONGOING_OBJECT_KEY"],
+			S3AuthorsObjectKey:     paramMap["S3_AUTHORS_OBJECT_KEY"],
 			S3NotifiedObjectKey:    paramMap["S3_NOTIFIED_OBJECT_KEY"],
 			S3Region:               paramMap["S3_REGION"],
 			AmazonPartnerTag:       paramMap["AMAZON_PARTNER_TAG"],
@@ -138,6 +139,20 @@ func CreateClient() paapi5.Client {
 }
 
 func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
+	body, err := GetS3Object(cfg, objectKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var ASINs []KindleBook
+	if err := json.Unmarshal(body, &ASINs); err != nil {
+		return nil, err
+	}
+
+	return ASINs, nil
+}
+
+func GetS3Object(cfg aws.Config, objectKey string) ([]byte, error) {
 	client := s3.NewFromConfig(cfg)
 
 	input := &s3.GetObjectInput{
@@ -151,17 +166,7 @@ func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
 	}
 	defer resp.Body.Close()
 
-	var ASINs []KindleBook
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(body, &ASINs); err != nil {
-		return nil, err
-	}
-
-	return ASINs, nil
+	return io.ReadAll(resp.Body)
 }
 
 func UniqueASINs(slice []KindleBook) []KindleBook {
