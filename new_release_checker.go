@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,14 +43,14 @@ func handler(ctx context.Context) (string, error) {
 }
 
 func process() error {
+	start := time.Now()
+	client := utils.CreateClient()
+	updated := false
+
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
 	}
-
-	client := utils.CreateClient()
-	start := time.Now()
-	updated := false
 
 	notifiedMap, err := fetchNotifiedASINs(cfg, start)
 	if err != nil {
@@ -75,7 +76,7 @@ func process() error {
 		}
 
 		for _, i := range items {
-			if shouldSkip(i, notifiedMap, start) {
+			if shouldSkip(i, author, notifiedMap, start) {
 				continue
 			}
 
@@ -86,7 +87,6 @@ func process() error {
 				i.DetailPageURL,
 			))
 
-			updated = true
 			notifiedMap[i.ASIN] = utils.KindleBook{
 				ASIN:         i.ASIN,
 				Title:        i.ItemInfo.Title.DisplayValue,
@@ -95,6 +95,7 @@ func process() error {
 				MaxPrice:     (*i.Offers.Listings)[0].Price.Amount,
 				URL:          i.DetailPageURL,
 			}
+			updated = true
 		}
 	}
 
@@ -104,8 +105,7 @@ func process() error {
 		}
 	}
 
-	elapsed := time.Since(start)
-	log.Printf("処理時間: %.2f 分\n", elapsed.Minutes())
+	log.Printf("処理時間: %.2f 分\n", time.Since(start).Minutes())
 
 	return nil
 }
@@ -138,9 +138,11 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 
 func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, error) {
 	q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
-		Search(query.Keywords, fmt.Sprintf("Kindle版 %s", authorName)).
-		Search(query.SearchIndex, "KindleStore").
-		Search(query.SortBy, "NewestArrivals").
+		Search(query.Author, authorName).
+		Request(query.SearchIndex, "KindleStore").
+		Request(query.SortBy, "NewestArrivals").
+		Request(query.BrowseNodeID, "2293143051").
+		Request(query.MinPrice, 22100).
 		EnableItemInfo().
 		EnableOffers()
 
@@ -156,35 +158,65 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 	return res.SearchResult.Items, nil
 }
 
-func shouldSkip(i entity.Item, notifiedMap map[string]utils.KindleBook, now time.Time) bool {
+func shouldSkip(i entity.Item, author Author, notifiedMap map[string]utils.KindleBook, now time.Time) bool {
 	if _, exists := notifiedMap[i.ASIN]; exists {
 		return true
 	}
-
 	if i.ItemInfo.ProductInfo.ReleaseDate == nil {
 		return true
 	}
-
 	if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
 		return true
 	}
-
-	if strings.Contains(i.ItemInfo.Title.DisplayValue, "分冊版") {
+	for _, s := range []string{
+		"分冊版",
+		"連載版",
+		"単話版",
+		"雑誌",
+		"アンソロジー",
+		"話売り",
+	} {
+		if strings.Contains(i.ItemInfo.Title.DisplayValue, s) {
+			return true
+		}
+	}
+	if regexp.MustCompile(`\d{4}年\d{1,2}月`).MatchString(i.ItemInfo.Title.DisplayValue) {
 		return true
 	}
-
-	if strings.Contains(i.ItemInfo.Title.DisplayValue, "連載版") {
-		return true
-	}
-
-	if strings.Contains(i.ItemInfo.Title.DisplayValue, "アンソロジー") {
-		return true
-	}
-
 	if i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
 		return true
 	}
+	if !isNameMatched(author, i) {
+		return true
+	}
+	return false
+}
 
+func normalizeName(name string) string {
+	var builder strings.Builder
+	for _, r := range name {
+		// 全角英数字: FF01(！) ～ FF5E(～)
+		if r >= '！' && r <= '～' {
+			r = rune(r - 0xFEE0)
+		}
+		// 全角スペース: U+3000
+		if r == '　' {
+			r = ' '
+		}
+		builder.WriteRune(r)
+	}
+
+	normalized := strings.ReplaceAll(builder.String(), " ", "")
+	return strings.TrimSpace(normalized)
+}
+
+func isNameMatched(author Author, i entity.Item) bool {
+	authorName := normalizeName(author.Name)
+	for _, c := range i.ItemInfo.ByLineInfo.Contributors {
+		if strings.Contains(authorName, normalizeName(c.Name)) {
+			return true
+		}
+	}
 	return false
 }
 
