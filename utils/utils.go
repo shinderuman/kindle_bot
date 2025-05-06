@@ -21,6 +21,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
+	"github.com/goark/errs"
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
@@ -244,15 +246,6 @@ func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, 
 	return res, nil
 }
 
-func PrintPrettyJSON(v any) {
-	prettyJSON, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return
-	}
-
-	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
-}
-
 func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, error) {
 	maxRetries := 5
 
@@ -262,7 +255,7 @@ func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, erro
 			return body, nil
 		}
 
-		if isRateLimitError(err) {
+		if findStatusCode(err) == 429 {
 			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second
 			waitTime += time.Duration(rand.Intn(1000)) * time.Millisecond
 			log.Printf("Rate limit hit. Retrying in %v...\n", waitTime)
@@ -276,14 +269,39 @@ func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, erro
 	return nil, fmt.Errorf("Max retries reached")
 }
 
-func isRateLimitError(err error) bool {
-	return strings.Contains(err.Error(), "bad HTTP status: status 429")
+func findStatusCode(err error) int {
+	for err != nil {
+		e, ok := err.(*errs.Error)
+		if !ok {
+			break
+		}
+
+		if val, ok := e.Context["status"]; ok {
+			return val.(int)
+		}
+
+		if e.Cause != nil {
+			err = e.Cause
+		} else {
+			err = e.Err
+		}
+	}
+	return 0
+}
+
+func PrintPrettyJSON(v any) {
+	prettyJSON, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return
+	}
+
+	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
 }
 
 func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	client := s3.NewFromConfig(cfg)
 
-	prettyJSON, err := json.MarshalIndent(ASINs, "", "  ")
+	prettyJSON, err := json.MarshalIndent(ASINs, "", "    ")
 	if err != nil {
 		return err
 	}
