@@ -283,7 +283,7 @@ func isRateLimitError(err error) bool {
 func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	client := s3.NewFromConfig(cfg)
 
-	prettyJSON, err := json.MarshalIndent(ASINs, "", "  ")
+	prettyJSON, err := json.MarshalIndent(ASINs, "", "    ")
 	if err != nil {
 		return err
 	}

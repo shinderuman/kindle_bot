@@ -69,9 +69,12 @@ func process() error {
 			}
 
 			q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
-				Search(query.Title, i.ItemInfo.Title.DisplayValue).
-				Search(query.SearchIndex, "KindleStore").
-				Search(query.Keywords, "Kindle版").
+				Search(query.Title, cleanTitle(i.ItemInfo.Title.DisplayValue)).
+				Request(query.SearchIndex, "KindleStore").
+				Request(query.SortBy, "NewestArrivals").
+				Request(query.BrowseNodeID, "2293143051").
+				Request(query.MinPrice, 20000).
+				Request(query.MaxPrice, (*i.Offers.Listings)[0].Price.Amount+20000). // 紙の値段より200円以上高い商品は除外する（特典付き特装版の可能性）
 				EnableItemInfo().
 				EnableOffers()
 			res, err := utils.SearchItems(client, q)
@@ -154,10 +157,6 @@ func isSameKindleBook(paperBook, kindleBook entity.Item) bool {
 		return false
 	}
 	if paperBook.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") != kindleBook.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") {
-		return false
-	}
-	// 紙の値段より200円以上高い商品は除外する（特典付き特装版の可能性）
-	if (*paperBook.Offers.Listings)[0].Price.Amount+200 <= (*kindleBook.Offers.Listings)[0].Price.Amount {
 		return false
 	}
 	return true
