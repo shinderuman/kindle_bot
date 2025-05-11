@@ -232,6 +232,23 @@ func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error
 	return res, nil
 }
 
+func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, searchValue string, maxPrice float64) *query.SearchItems {
+	q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
+		Search(searchKey, searchValue).
+		Request(query.SearchIndex, "KindleStore").
+		Request(query.SortBy, "NewestArrivals").
+		Request(query.BrowseNodeID, "2293143051").
+		Request(query.MinPrice, 22100).
+		EnableItemInfo().
+		EnableOffers()
+
+	if maxPrice > 0 {
+		q = q.Request(query.MaxPrice, maxPrice)
+	}
+
+	return q
+}
+
 func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, error) {
 	body, err := requestWithBackoff(client, q)
 	if err != nil {
@@ -316,9 +333,14 @@ func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	return err
 }
 
-func AlertToSlack(err error, withMention bool) error {
+func AlertToSlack(err error, withMention ...bool) error {
 	log.Println(err)
-	if withMention {
+	w := true
+	if len(withMention) > 0 {
+		w = withMention[0]
+	}
+
+	if w {
 		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX>\n```%v```", err), EnvConfig.SlackErrorChannel)
 	} else {
 		return PostToSlack(fmt.Sprintf("```%v```", err), EnvConfig.SlackErrorChannel)
@@ -392,6 +414,14 @@ func UpdateGist(books []KindleBook, filename string) error {
 	return nil
 }
 
+func AppendFallbackBooks(asins []string, original []KindleBook) []KindleBook {
+	var result []KindleBook
+	for _, asin := range asins {
+		result = append(result, GetBook(asin, original))
+	}
+	return result
+}
+
 func GetBook(ASIN string, slice []KindleBook) KindleBook {
 	for _, s := range slice {
 		if ASIN == s.ASIN {
@@ -399,4 +429,31 @@ func GetBook(ASIN string, slice []KindleBook) KindleBook {
 		}
 	}
 	return KindleBook{}
+}
+
+func MakeBook(item entity.Item, maxPrice float64) KindleBook {
+	book := KindleBook{
+		ASIN:         item.ASIN,
+		Title:        item.ItemInfo.Title.DisplayValue,
+		CurrentPrice: (*item.Offers.Listings)[0].Price.Amount,
+		MaxPrice:     (*item.Offers.Listings)[0].Price.Amount,
+		URL:          item.DetailPageURL,
+	}
+
+	if item.ItemInfo.ProductInfo.ReleaseDate != nil {
+		book.ReleaseDate = item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
+	}
+
+	if maxPrice > 0 {
+		book.MaxPrice = maxPrice
+	}
+
+	return book
+}
+
+func LogAndNotify(message string) {
+	log.Println(message)
+	if err := PostToSlack(message); err != nil {
+		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err))
+	}
 }
