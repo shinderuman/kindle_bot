@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
 	"kindle_bot/utils"
@@ -24,7 +25,7 @@ func main() {
 		lambda.Start(handler)
 	} else {
 		if _, err := handler(context.Background()); err != nil {
-			utils.AlertToSlack(err, true)
+			utils.AlertToSlack(err)
 		}
 	}
 }
@@ -41,94 +42,98 @@ func process() error {
 
 	client := utils.CreateClient()
 
-	newUnprocessedASINs := []utils.KindleBook{}
-	unprocessedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
-	for _, asinChunk := range utils.ChunkedASINs(utils.UniqueASINs(unprocessedASINs), 10) {
-		response, err := utils.GetItems(client, asinChunk)
-		if err != nil {
-			for _, asin := range asinChunk {
-				newUnprocessedASINs = append(newUnprocessedASINs, utils.GetBook(asin, unprocessedASINs))
-			}
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
-			continue
-		}
-		for _, item := range response.ItemsResult.Items {
-			if item.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
-				utils.AlertToSlack(fmt.Errorf(
-					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
-					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
-				), true)
-				continue
-			}
+	newBooks := processASINs(client, originalBooks)
 
-			maxPrice := math.Max(utils.GetBook(item.ASIN, unprocessedASINs).MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
-			ok, conditions := checkConditions(item, maxPrice)
-			if ok {
-				message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
-				log.Println(message)
-
-				status, err := utils.TootMastodon(message)
-				if err != nil {
-					utils.AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err), true)
-				}
-				if err = utils.PostToSlack(fmt.Sprintf("%s\n\n%s", message, status.URI)); err != nil {
-					utils.AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), true)
-				}
-			} else {
-				newUnprocessedASINs = append(newUnprocessedASINs, utils.KindleBook{
-					ASIN:         item.ASIN,
-					Title:        item.ItemInfo.Title.DisplayValue,
-					ReleaseDate:  item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-					CurrentPrice: (*item.Offers.Listings)[0].Price.Amount,
-					MaxPrice:     maxPrice,
-					URL:          item.DetailPageURL,
-				})
-			}
-		}
+	utils.SortByReleaseDate(newBooks)
+	if reflect.DeepEqual(originalBooks, newBooks) {
+		return nil
 	}
 
-	utils.SortByReleaseDate(newUnprocessedASINs)
-	if !reflect.DeepEqual(unprocessedASINs, newUnprocessedASINs) {
-		if err := utils.SaveASINs(cfg, newUnprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
-		}
-		if err := utils.UpdateGist(newUnprocessedASINs, "わいのセールになってほしい本.md"); err != nil {
-			return fmt.Errorf("Error update gist: %s", err)
-		}
+	if err := utils.SaveASINs(cfg, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+	}
+
+	if err := utils.UpdateGist(newBooks, "わいのセールになってほしい本.md"); err != nil {
+		return fmt.Errorf("Error update gist: %s", err)
 	}
 
 	return nil
 }
 
-func checkConditions(item entity.Item, maxPrice float64) (bool, string) {
+func processASINs(client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
+	var result []utils.KindleBook
+
+	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
+		resp, err := utils.GetItems(client, chunk)
+		if err != nil {
+			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
+			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			continue
+		}
+
+		for _, item := range resp.ItemsResult.Items {
+			log.Println(item.ItemInfo.Title.DisplayValue)
+
+			if !isKindle(item) {
+				utils.AlertToSlack(fmt.Errorf(
+					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
+				))
+				continue
+			}
+
+			book := utils.GetBook(item.ASIN, original)
+			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
+
+			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
+				if err := notifyDiscount(item, strings.Join(conditions, " ")); err != nil {
+					utils.AlertToSlack(err)
+				}
+			} else {
+				result = append(result, utils.MakeBook(item, maxPrice))
+			}
+		}
+	}
+
+	return result
+}
+
+func isKindle(item entity.Item) bool {
+	return item.ItemInfo.Classifications.Binding.DisplayValue == "Kindle版"
+}
+
+func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
 	amount := (*item.Offers.Listings)[0].Price.Amount
 	points := (*item.Offers.Listings)[0].LoyaltyPoints.Points
 
 	var conditions []string
-
-	// 最大の値段より 151円以上安い
-	priceDrop := maxPrice - amount
-	if priceDrop >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅価格差 %.0f円", priceDrop))
+	if diff := maxPrice - amount; diff >= 151 {
+		conditions = append(conditions, fmt.Sprintf("✅価格差 %.0f円", diff))
 	}
-
-	// ポイント 151pt以上
 	if points >= 151 {
 		conditions = append(conditions, fmt.Sprintf("✅ポイント %dpt", points))
 	}
-
-	// ポイント還元 20%以上
-	pointPercentage := float64(points) / float64(amount) * 100
-	if pointPercentage >= 20 {
-		conditions = append(conditions, fmt.Sprintf("✅ポイント還元 %.1f%%", pointPercentage))
+	if percent := float64(points) / amount * 100; percent >= 20 {
+		conditions = append(conditions, fmt.Sprintf("✅ポイント還元 %.1f%%", percent))
 	}
 
-	if len(conditions) > 0 {
-		return true, strings.Join(conditions, " ")
+	return conditions
+}
+
+func notifyDiscount(item entity.Item, conditions string) error {
+	message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
+
+	status, err := utils.TootMastodon(message)
+	if err != nil {
+		return fmt.Errorf("Failed to post to Mastodon: %v", err)
 	}
-	return false, ""
+
+	utils.LogAndNotify(fmt.Sprintf("%s\n\n%s", message, status.URI))
+
+	return nil
 }

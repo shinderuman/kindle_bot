@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
@@ -25,7 +27,7 @@ func main() {
 		lambda.Start(handler)
 	} else {
 		if _, err := handler(context.Background()); err != nil {
-			utils.AlertToSlack(err, true)
+			utils.AlertToSlack(err)
 		}
 	}
 }
@@ -41,100 +43,46 @@ func process() error {
 	}
 
 	client := utils.CreateClient()
-
-	paperBooksASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
+	originalPaperBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching paper books ASINs: %v", err)
 	}
 
-	newUnprocessedASINs := []utils.KindleBook{}
-	newPaperBooksASINs := []utils.KindleBook{}
-	for _, asinChunk := range utils.ChunkedASINs(utils.UniqueASINs(paperBooksASINs), 10) {
-		res, err := utils.GetItems(client, asinChunk)
+	var newUnprocessed, newPaperBooks []utils.KindleBook
+	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10) {
+		items, err := utils.GetItems(client, chunk)
 		if err != nil {
-			for _, asin := range asinChunk {
-				newPaperBooksASINs = append(newPaperBooksASINs, utils.GetBook(asin, paperBooksASINs))
-			}
+			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
 			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
 
-		for _, i := range res.ItemsResult.Items {
-			if i.ItemInfo.Classifications.Binding.DisplayValue != "コミック" {
-				utils.AlertToSlack(fmt.Errorf(
-					"The item category is not a コミック.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
-					i.ASIN, i.ItemInfo.Title.DisplayValue, i.ItemInfo.Classifications.Binding.DisplayValue, i.DetailPageURL,
-				), true)
-				continue
-			}
+		for _, paper := range items.ItemsResult.Items {
+			log.Println(paper.ItemInfo.Title.DisplayValue)
 
-			q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
-				Search(query.Title, cleanTitle(i.ItemInfo.Title.DisplayValue)).
-				Request(query.SearchIndex, "KindleStore").
-				Request(query.SortBy, "NewestArrivals").
-				Request(query.BrowseNodeID, "2293143051").
-				Request(query.MinPrice, 20000).
-				Request(query.MaxPrice, (*i.Offers.Listings)[0].Price.Amount+20000). // 紙の値段より200円以上高い商品は除外する（特典付き特装版の可能性）
-				EnableItemInfo().
-				EnableOffers()
-			res, err := utils.SearchItems(client, q)
+			kindleItem, err := searchKindleEdition(client, paper)
 			if err != nil {
-				utils.AlertToSlack(fmt.Errorf("Error search items: %v", err), true)
+				utils.AlertToSlack(err)
+				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
 				continue
 			}
 
-			foundKindle := false
-			if res.SearchResult != nil {
-				for _, j := range res.SearchResult.Items {
-					if isSameKindleBook(i, j) {
-						message := fmt.Sprintf("📚 %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s", j.ItemInfo.Title.DisplayValue, (*i.Offers.Listings)[0].Price.Amount, i.DetailPageURL, (*j.Offers.Listings)[0].Price.Amount, j.DetailPageURL)
-						log.Println(message)
-						if err = utils.PostToSlack(message); err != nil {
-							utils.AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), true)
-						}
-
-						newUnprocessedASINs = append(newUnprocessedASINs, utils.KindleBook{
-							ASIN:         j.ASIN,
-							Title:        j.ItemInfo.Title.DisplayValue,
-							ReleaseDate:  j.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-							CurrentPrice: (*j.Offers.Listings)[0].Price.Amount,
-							MaxPrice:     (*j.Offers.Listings)[0].Price.Amount,
-							URL:          j.DetailPageURL,
-						})
-						foundKindle = true
-					}
-				}
-			}
-			if !foundKindle {
-				newPaperBooksASINs = append(newPaperBooksASINs, utils.KindleBook{
-					ASIN:         i.ASIN,
-					Title:        i.ItemInfo.Title.DisplayValue,
-					ReleaseDate:  i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-					CurrentPrice: (*i.Offers.Listings)[0].Price.Amount,
-					MaxPrice:     (*i.Offers.Listings)[0].Price.Amount,
-					URL:          i.DetailPageURL,
-				})
+			if kindleItem != nil {
+				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem))
+				newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
+			} else {
+				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
 			}
 		}
 	}
 
-	if len(newUnprocessedASINs) > 0 {
-		unprocessedASINs, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
-		if err != nil {
-			return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
-		}
-
-		unprocessedASINs = append(unprocessedASINs, newUnprocessedASINs...)
-		utils.SortByReleaseDate(unprocessedASINs)
-
-		if err := utils.SaveASINs(cfg, unprocessedASINs, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-			return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
-		}
+	if err := updateUnprocessedASINs(cfg, newUnprocessed); err != nil {
+		return err
 	}
 
-	utils.SortByReleaseDate(newPaperBooksASINs)
-	if !reflect.DeepEqual(paperBooksASINs, newPaperBooksASINs) {
-		if err := utils.SaveASINs(cfg, newPaperBooksASINs, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+	utils.SortByReleaseDate(newPaperBooks)
+	if !reflect.DeepEqual(originalPaperBooks, newPaperBooks) {
+		if err := utils.SaveASINs(cfg, newPaperBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("Error saving paper books ASINs: %v", err)
 		}
 	}
@@ -142,22 +90,78 @@ func process() error {
 	return nil
 }
 
+func searchKindleEdition(client paapi5.Client, paper entity.Item) (*entity.Item, error) {
+	q := utils.CreateSearchQuery(
+		client,
+		query.Title,
+		cleanTitle(paper.ItemInfo.Title.DisplayValue),
+		(*paper.Offers.Listings)[0].Price.Amount+20000,
+	)
+
+	res, err := utils.SearchItems(client, q)
+	if err != nil {
+		return nil, fmt.Errorf("Error searching items: %v", err)
+	}
+
+	if res.SearchResult == nil {
+		return nil, nil
+	}
+
+	for _, kindle := range res.SearchResult.Items {
+		if isSameKindleBook(paper, kindle) {
+			return &kindle, nil
+		}
+	}
+	return nil, nil
+}
+
+func updateUnprocessedASINs(cfg aws.Config, newItems []utils.KindleBook) error {
+	if len(newItems) == 0 {
+		return nil
+	}
+
+	current, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	if err != nil {
+		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
+	}
+
+	all := append(current, newItems...)
+	utils.SortByReleaseDate(all)
+
+	if err := utils.SaveASINs(cfg, all, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+	}
+	return nil
+}
+
 func cleanTitle(title string) string {
 	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕]|\s*[0-9]+.*$`).ReplaceAllString(title, ""))
 }
 
-func isSameKindleBook(paperBook, kindleBook entity.Item) bool {
-	if paperBook.ASIN == kindleBook.ASIN {
+func formatSlackMessage(paper, kindle entity.Item) string {
+	return fmt.Sprintf(
+		"📚 %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+		kindle.ItemInfo.Title.DisplayValue,
+		(*paper.Offers.Listings)[0].Price.Amount,
+		paper.DetailPageURL,
+		(*kindle.Offers.Listings)[0].Price.Amount,
+		kindle.DetailPageURL,
+	)
+}
+
+func isSameKindleBook(paper, kindle entity.Item) bool {
+	if paper.ASIN == kindle.ASIN {
 		return false
 	}
-	if kindleBook.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+	if kindle.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
 		return false
 	}
-	if kindleBook.ItemInfo.ProductInfo.ReleaseDate == nil {
+	if paper.ItemInfo.ProductInfo.ReleaseDate == nil {
 		return false
 	}
-	if paperBook.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") != kindleBook.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") {
+	if kindle.ItemInfo.ProductInfo.ReleaseDate == nil {
 		return false
 	}
-	return true
+	return paper.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") ==
+		kindle.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02")
 }

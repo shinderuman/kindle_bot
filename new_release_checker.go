@@ -33,7 +33,7 @@ func main() {
 		lambda.Start(handler)
 	} else {
 		if _, err := handler(context.Background()); err != nil {
-			utils.AlertToSlack(err, true)
+			utils.AlertToSlack(err)
 		}
 	}
 }
@@ -71,7 +71,7 @@ func process() error {
 		}
 
 		if len(items) == 0 {
-			logAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL))
+			utils.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL))
 			continue
 		}
 
@@ -80,21 +80,14 @@ func process() error {
 				continue
 			}
 
-			logAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\n%s",
+			utils.LogAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\n%s",
 				i.ItemInfo.Title.DisplayValue,
 				author.Name,
 				i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
 				i.DetailPageURL,
 			))
 
-			notifiedMap[i.ASIN] = utils.KindleBook{
-				ASIN:         i.ASIN,
-				Title:        i.ItemInfo.Title.DisplayValue,
-				ReleaseDate:  i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue,
-				CurrentPrice: (*i.Offers.Listings)[0].Price.Amount,
-				MaxPrice:     (*i.Offers.Listings)[0].Price.Amount,
-				URL:          i.DetailPageURL,
-			}
+			notifiedMap[i.ASIN] = utils.MakeBook(i, 0)
 			updated = true
 		}
 	}
@@ -137,14 +130,12 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 }
 
 func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, error) {
-	q := query.NewSearchItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
-		Search(query.Author, authorName).
-		Request(query.SearchIndex, "KindleStore").
-		Request(query.SortBy, "NewestArrivals").
-		Request(query.BrowseNodeID, "2293143051").
-		Request(query.MinPrice, 22100).
-		EnableItemInfo().
-		EnableOffers()
+	q := utils.CreateSearchQuery(
+		client,
+		query.Author,
+		authorName,
+		0,
+	)
 
 	res, err := utils.SearchItems(client, q)
 	if err != nil {
@@ -218,13 +209,6 @@ func isNameMatched(author Author, i entity.Item) bool {
 		}
 	}
 	return false
-}
-
-func logAndNotify(message string) {
-	log.Println(message)
-	if err := utils.PostToSlack(message); err != nil {
-		utils.AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), true)
-	}
 }
 
 func saveUpdatedASINs(cfg aws.Config, m map[string]utils.KindleBook) error {
