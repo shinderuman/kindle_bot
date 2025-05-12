@@ -35,12 +35,22 @@ var EnvConfig Config
 func InitConfig() error {
 	if IsLambda() {
 		ctx := context.Background()
-		prefix := "/myapp" // SSMパラメータの共通プレフィックス（例）
 
-		paramMap, err := getSSMParameters(ctx, prefix)
+		plainParams, err := getSSMParameters(ctx, "/myapp/plain", false)
 		if err != nil {
 			return err
 		}
+
+		secureParams, err := getSSMParameters(ctx, "/myapp/secure", true)
+		if err != nil {
+			return err
+		}
+
+		for k, v := range secureParams {
+			plainParams[k] = v
+		}
+
+		paramMap := plainParams
 
 		EnvConfig = Config{
 			S3BucketName:           paramMap["S3_BUCKET_NAME"],
@@ -77,7 +87,7 @@ func InitConfig() error {
 	return nil
 }
 
-func getSSMParameters(ctx context.Context, prefix string) (map[string]string, error) {
+func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (map[string]string, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -91,7 +101,7 @@ func getSSMParameters(ctx context.Context, prefix string) (map[string]string, er
 	for {
 		input := &ssm.GetParametersByPathInput{
 			Path:           aws.String(prefix),
-			WithDecryption: aws.Bool(true),
+			WithDecryption: aws.Bool(withDecryption),
 			Recursive:      aws.Bool(true),
 			NextToken:      nextToken,
 		}
@@ -114,7 +124,6 @@ func getSSMParameters(ctx context.Context, prefix string) (map[string]string, er
 
 	return params, nil
 }
-
 func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
