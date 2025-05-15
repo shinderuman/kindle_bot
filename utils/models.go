@@ -11,6 +11,7 @@ type Config struct {
 	S3OngoingObjectKey     string `json:"S3OngoingObjectKey"`
 	S3AuthorsObjectKey     string `json:"S3AuthorsObjectKey"`
 	S3NotifiedObjectKey    string `json:"S3NotifiedObjectKey"`
+	S3UpcomingObjectKey    string `json:"S3UpcomingObjectKey"`
 	S3Region               string `json:"S3Region"`
 	AmazonPartnerTag       string `json:"AmazonPartnerTag"`
 	AmazonAccessKey        string `json:"AmazonAccessKey"`

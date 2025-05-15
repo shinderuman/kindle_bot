@@ -47,7 +47,12 @@ func process() error {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
-	newBooks := processASINs(client, originalBooks)
+	upcomingBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+	if err != nil {
+		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
+	}
+
+	newBooks := processASINs(client, append(originalBooks, upcomingBooks...))
 
 	utils.SortByReleaseDate(newBooks)
 	if reflect.DeepEqual(originalBooks, newBooks) {
@@ -60,6 +65,10 @@ func process() error {
 
 	if err := utils.UpdateGist(newBooks, "わいのセールになってほしい本.md"); err != nil {
 		return fmt.Errorf("Error update gist: %s", err)
+	}
+
+	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 	}
 
 	return nil

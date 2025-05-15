@@ -76,7 +76,7 @@ func process() error {
 		}
 	}
 
-	if err := updateUnprocessedASINs(cfg, newUnprocessed); err != nil {
+	if err := updateASINs(cfg, newUnprocessed); err != nil {
 		return err
 	}
 
@@ -115,21 +115,33 @@ func searchKindleEdition(client paapi5.Client, paper entity.Item) (*entity.Item,
 	return nil, nil
 }
 
-func updateUnprocessedASINs(cfg aws.Config, newItems []utils.KindleBook) error {
+func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
 	if len(newItems) == 0 {
 		return nil
 	}
 
-	current, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	currentUnprocessed, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
-	all := append(current, newItems...)
-	utils.SortByReleaseDate(all)
+	allUnprocessed := append(currentUnprocessed, newItems...)
+	utils.SortByReleaseDate(allUnprocessed)
 
-	if err := utils.SaveASINs(cfg, all, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+	if err := utils.SaveASINs(cfg, allUnprocessed, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+	}
+
+	currentNotified, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
+	if err != nil {
+		return fmt.Errorf("Error fetching notified ASINs: %v", err)
+	}
+
+	allNotified := append(currentNotified, newItems...)
+	utils.SortByReleaseDate(allNotified)
+
+	if err := utils.SaveASINs(cfg, allNotified, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+		return fmt.Errorf("Error saving notified ASINs: %v", err)
 	}
 	return nil
 }
