@@ -45,13 +45,13 @@ func handler(ctx context.Context) (string, error) {
 func process() error {
 	start := time.Now()
 	client := utils.CreateClient()
-	updated := false
 
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
 	}
 
+	upcomingMap := make(map[string]utils.KindleBook)
 	notifiedMap, err := fetchNotifiedASINs(cfg, start)
 	if err != nil {
 		return err
@@ -80,26 +80,30 @@ func process() error {
 				continue
 			}
 
-			utils.LogAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\n%s",
+			utils.LogAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
 				i.ItemInfo.Title.DisplayValue,
 				author.Name,
 				i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
+				i.ASIN,
 				i.DetailPageURL,
 			))
 
-			notifiedMap[i.ASIN] = utils.MakeBook(i, 0)
-			updated = true
+			b := utils.MakeBook(i, 0)
+			notifiedMap[i.ASIN] = b
+			upcomingMap[i.ASIN] = b
 		}
 	}
 
-	if updated {
-		if err := saveUpdatedASINs(cfg, notifiedMap); err != nil {
+	if len(upcomingMap) > 0 {
+		if err := saveASINs(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+			return err
+		}
+		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
 			return err
 		}
 	}
 
 	log.Printf("処理時間: %.2f 分\n", time.Since(start).Minutes())
-
 	return nil
 }
 
@@ -211,11 +215,11 @@ func isNameMatched(author Author, i entity.Item) bool {
 	return false
 }
 
-func saveUpdatedASINs(cfg aws.Config, m map[string]utils.KindleBook) error {
+func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error {
 	var list []utils.KindleBook
 	for _, book := range m {
 		list = append(list, book)
 	}
 	utils.SortByReleaseDate(list)
-	return utils.SaveASINs(cfg, list, utils.EnvConfig.S3NotifiedObjectKey)
+	return utils.SaveASINs(cfg, list, key)
 }

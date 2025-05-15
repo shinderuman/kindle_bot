@@ -59,6 +59,7 @@ func InitConfig() error {
 			S3OngoingObjectKey:     paramMap["S3_ONGOING_OBJECT_KEY"],
 			S3AuthorsObjectKey:     paramMap["S3_AUTHORS_OBJECT_KEY"],
 			S3NotifiedObjectKey:    paramMap["S3_NOTIFIED_OBJECT_KEY"],
+			S3UpcomingObjectKey:    paramMap["S3_UPCOMING_OBJECT_KEY"],
 			S3Region:               paramMap["S3_REGION"],
 			AmazonPartnerTag:       paramMap["AMAZON_PARTNER_TAG"],
 			AmazonAccessKey:        paramMap["AMAZON_ACCESS_KEY"],
