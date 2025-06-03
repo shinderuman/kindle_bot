@@ -62,6 +62,11 @@ func process() error {
 		return err
 	}
 
+	ngWords, err := fetchExcludedTitleKeywords(cfg)
+	if err != nil {
+		return err
+	}
+
 	for i, author := range authors {
 		log.Printf("%04d / %04d %s\n", i+1, len(authors), author.Name)
 
@@ -76,7 +81,7 @@ func process() error {
 		}
 
 		for _, i := range items {
-			if shouldSkip(i, author, notifiedMap, start) {
+			if shouldSkip(i, author, notifiedMap, ngWords, start) {
 				continue
 			}
 
@@ -133,6 +138,18 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 	return authors, nil
 }
 
+func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
+	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("Error fetching excluded title keywords file: %v", err)
+	}
+	var keywords []string
+	if err := json.Unmarshal(body, &keywords); err != nil {
+		return nil, err
+	}
+	return keywords, nil
+}
+
 func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
@@ -153,7 +170,7 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 	return res.SearchResult.Items, nil
 }
 
-func shouldSkip(i entity.Item, author Author, notifiedMap map[string]utils.KindleBook, now time.Time) bool {
+func shouldSkip(i entity.Item, author Author, notifiedMap map[string]utils.KindleBook, ngWords []string, now time.Time) bool {
 	if _, exists := notifiedMap[i.ASIN]; exists {
 		return true
 	}
@@ -163,14 +180,7 @@ func shouldSkip(i entity.Item, author Author, notifiedMap map[string]utils.Kindl
 	if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
 		return true
 	}
-	for _, s := range []string{
-		"分冊版",
-		"連載版",
-		"単話版",
-		"雑誌",
-		"アンソロジー",
-		"話売り",
-	} {
+	for _, s := range ngWords {
 		if strings.Contains(i.ItemInfo.Title.DisplayValue, s) {
 			return true
 		}
