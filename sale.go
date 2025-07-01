@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"math"
 	"reflect"
 	"strings"
 
-	"github.com/aws/aws-lambda-go/lambda"
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
@@ -16,22 +14,7 @@ import (
 )
 
 func main() {
-	if err := utils.InitConfig(); err != nil {
-		log.Println("Error loading configuration:", err)
-		return
-	}
-
-	if utils.IsLambda() {
-		lambda.Start(handler)
-	} else {
-		if _, err := handler(context.Background()); err != nil {
-			utils.AlertToSlack(err)
-		}
-	}
-}
-
-func handler(ctx context.Context) (string, error) {
-	return "Processing complete: sale.go", process()
+	utils.Run(process)
 }
 
 func process() error {
