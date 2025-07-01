@@ -12,10 +12,13 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -31,6 +34,54 @@ import (
 )
 
 var EnvConfig Config
+
+func Run(process func() error) {
+	if err := InitConfig(); err != nil {
+		log.Println("Error loading configuration:", err)
+		return
+	}
+
+	handler := func(ctx context.Context) (string, error) {
+		err := process()
+		if err != nil {
+			AlertToSlack(err)
+		}
+		return "Processing complete: " + getFilename(), err
+	}
+
+	if IsLambda() {
+		lambda.Start(handler)
+	} else {
+		handler(context.Background())
+	}
+}
+
+func getFilename() string {
+	const maxDepth = 50
+	pcs := make([]uintptr, maxDepth)
+	n := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+
+	var prevFrame *runtime.Frame
+
+	for {
+		frame, more := frames.Next()
+		baseFile := filepath.Base(frame.File)
+		if baseFile == "proc.go" {
+			if prevFrame != nil {
+				return filepath.Base(prevFrame.File)
+			}
+			return "unknown"
+		}
+
+		prevFrame = &frame
+		if !more {
+			break
+		}
+	}
+
+	return "unknown"
+}
 
 func InitConfig() error {
 	if IsLambda() {
@@ -56,7 +107,6 @@ func InitConfig() error {
 			S3BucketName:                     paramMap["S3_BUCKET_NAME"],
 			S3UnprocessedObjectKey:           paramMap["S3_UNPROCESSED_OBJECT_KEY"],
 			S3PaperBooksObjectKey:            paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
-			S3OngoingObjectKey:               paramMap["S3_ONGOING_OBJECT_KEY"],
 			S3AuthorsObjectKey:               paramMap["S3_AUTHORS_OBJECT_KEY"],
 			S3ExcludedTitleKeywordsObjectKey: paramMap["S3_EXCLUDED_TITLE_KEYWORDS_OBJECT_KEY"],
 			S3NotifiedObjectKey:              paramMap["S3_NOTIFIED_OBJECT_KEY"],
@@ -126,6 +176,7 @@ func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (
 
 	return params, nil
 }
+
 func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
@@ -230,7 +281,7 @@ func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(client, q)
+	body, err := requestWithBackoff(client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -260,8 +311,8 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 	return q
 }
 
-func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, error) {
-	body, err := requestWithBackoff(client, q)
+func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetries int) (*entity.Response, error) {
+	body, err := requestWithBackoff(client, q, maxRetries)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -274,9 +325,7 @@ func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, 
 	return res, nil
 }
 
-func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, error) {
-	maxRetries := 5
-
+func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetries int) ([]byte, error) {
 	for i := 0; i < maxRetries; i++ {
 		body, err := client.Request(q)
 		if err == nil {
@@ -352,9 +401,9 @@ func AlertToSlack(err error, withMention ...bool) error {
 	}
 
 	if w {
-		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX>\n```%v```", err), EnvConfig.SlackErrorChannel)
+		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX> %s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
 	} else {
-		return PostToSlack(fmt.Sprintf("```%v```", err), EnvConfig.SlackErrorChannel)
+		return PostToSlack(fmt.Sprintf("%s\n```%v```", err), getFilename(), EnvConfig.SlackErrorChannel)
 	}
 }
 

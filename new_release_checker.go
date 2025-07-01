@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
@@ -19,27 +22,13 @@ import (
 )
 
 type Author struct {
-	Name string `json:"Name"`
-	URL  string `json:"URL"`
+	Name              string      `json:"Name"`
+	URL               string      `json:"URL"`
+	LatestReleaseDate entity.Date `json:"LatestReleaseDate"`
 }
 
 func main() {
-	if err := utils.InitConfig(); err != nil {
-		log.Println("Error loading configuration:", err)
-		return
-	}
-
-	if utils.IsLambda() {
-		lambda.Start(handler)
-	} else {
-		if _, err := handler(context.Background()); err != nil {
-			utils.AlertToSlack(err)
-		}
-	}
-}
-
-func handler(ctx context.Context) (string, error) {
-	return "Processing complete: new_release_checker.go", process()
+	utils.Run(process)
 }
 
 func process() error {
@@ -67,7 +56,8 @@ func process() error {
 		return err
 	}
 
-	for i, author := range authors {
+	for i := range authors {
+		author := &authors[i]
 		log.Printf("%04d / %04d %s\n", i+1, len(authors), author.Name)
 
 		items, err := searchAuthorBooks(client, author.Name)
@@ -80,22 +70,25 @@ func process() error {
 			continue
 		}
 
-		for _, i := range items {
-			if shouldSkip(i, author, notifiedMap, ngWords, start) {
+		for i, item := range items {
+			if i == 0 {
+				author.LatestReleaseDate = item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
+			}
+			if shouldSkip(item, author, notifiedMap, ngWords, start) {
 				continue
 			}
 
 			utils.LogAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
-				i.ItemInfo.Title.DisplayValue,
+				item.ItemInfo.Title.DisplayValue,
 				author.Name,
-				i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
-				i.ASIN,
-				i.DetailPageURL,
+				item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
+				item.ASIN,
+				item.DetailPageURL,
 			))
 
-			b := utils.MakeBook(i, 0)
-			notifiedMap[i.ASIN] = b
-			upcomingMap[i.ASIN] = b
+			b := utils.MakeBook(item, 0)
+			notifiedMap[item.ASIN] = b
+			upcomingMap[item.ASIN] = b
 		}
 	}
 
@@ -104,6 +97,9 @@ func process() error {
 			return err
 		}
 		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+			return err
+		}
+		if err := saveAuthors(cfg, authors); err != nil {
 			return err
 		}
 	}
@@ -158,7 +154,7 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 		0,
 	)
 
-	res, err := utils.SearchItems(client, q)
+	res, err := utils.SearchItems(client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("Error search items: %v", err)
 	}
@@ -170,7 +166,7 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 	return res.SearchResult.Items, nil
 }
 
-func shouldSkip(i entity.Item, author Author, notifiedMap map[string]utils.KindleBook, ngWords []string, now time.Time) bool {
+func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.KindleBook, ngWords []string, now time.Time) bool {
 	if _, exists := notifiedMap[i.ASIN]; exists {
 		return true
 	}
@@ -215,7 +211,7 @@ func normalizeName(name string) string {
 	return strings.TrimSpace(normalized)
 }
 
-func isNameMatched(author Author, i entity.Item) bool {
+func isNameMatched(author *Author, i entity.Item) bool {
 	authorName := normalizeName(author.Name)
 	for _, c := range i.ItemInfo.ByLineInfo.Contributors {
 		if strings.Contains(authorName, normalizeName(c.Name)) {
@@ -232,4 +228,42 @@ func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error 
 	}
 	utils.SortByReleaseDate(list)
 	return utils.SaveASINs(cfg, list, key)
+}
+
+func saveAuthors(cfg aws.Config, authors []Author) error {
+	seen := make(map[string]bool)
+	uniqueAuthors := make([]Author, 0, len(authors))
+
+	for _, author := range authors {
+		if !seen[author.Name] {
+			seen[author.Name] = true
+			uniqueAuthors = append(uniqueAuthors, author)
+		}
+	}
+
+	sort.Slice(uniqueAuthors, func(i, j int) bool {
+		if uniqueAuthors[i].LatestReleaseDate.After(uniqueAuthors[j].LatestReleaseDate.Time) {
+			return true
+		}
+		if uniqueAuthors[i].LatestReleaseDate.Before(uniqueAuthors[j].LatestReleaseDate.Time) {
+			return false
+		}
+		return uniqueAuthors[i].Name < uniqueAuthors[j].Name
+	})
+
+	client := s3.NewFromConfig(cfg)
+
+	prettyJSON, err := json.MarshalIndent(uniqueAuthors, "", "    ")
+	if err != nil {
+		return err
+	}
+
+	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:      aws.String(utils.EnvConfig.S3BucketName),
+		Key:         aws.String(utils.EnvConfig.S3AuthorsObjectKey),
+		Body:        strings.NewReader(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&")),
+		ACL:         types.ObjectCannedACLPrivate,
+		ContentType: aws.String("application/json"),
+	})
+	return err
 }
