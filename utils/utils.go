@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -33,7 +34,11 @@ import (
 	"github.com/slack-go/slack"
 )
 
-var EnvConfig Config
+var (
+	EnvConfig     Config
+	configInitErr error
+	once          sync.Once
+)
 
 func Run(process func() error) {
 	if err := InitConfig(); err != nil {
@@ -85,46 +90,50 @@ func getFilename() string {
 
 func InitConfig() error {
 	if IsLambda() {
-		ctx := context.Background()
+		once.Do(func() {
+			ctx := context.Background()
 
-		plainParams, err := getSSMParameters(ctx, "/myapp/plain", false)
-		if err != nil {
-			return err
-		}
+			plainParams, err := getSSMParameters(ctx, "/myapp/plain", false)
+			if err != nil {
+				configInitErr = err
+				return
+			}
 
-		secureParams, err := getSSMParameters(ctx, "/myapp/secure", true)
-		if err != nil {
-			return err
-		}
+			secureParams, err := getSSMParameters(ctx, "/myapp/secure", true)
+			if err != nil {
+				configInitErr = err
+				return
+			}
 
-		for k, v := range secureParams {
-			plainParams[k] = v
-		}
+			for k, v := range secureParams {
+				plainParams[k] = v
+			}
 
-		paramMap := plainParams
-
-		EnvConfig = Config{
-			S3BucketName:                     paramMap["S3_BUCKET_NAME"],
-			S3UnprocessedObjectKey:           paramMap["S3_UNPROCESSED_OBJECT_KEY"],
-			S3PaperBooksObjectKey:            paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
-			S3AuthorsObjectKey:               paramMap["S3_AUTHORS_OBJECT_KEY"],
-			S3ExcludedTitleKeywordsObjectKey: paramMap["S3_EXCLUDED_TITLE_KEYWORDS_OBJECT_KEY"],
-			S3NotifiedObjectKey:              paramMap["S3_NOTIFIED_OBJECT_KEY"],
-			S3UpcomingObjectKey:              paramMap["S3_UPCOMING_OBJECT_KEY"],
-			S3Region:                         paramMap["S3_REGION"],
-			AmazonPartnerTag:                 paramMap["AMAZON_PARTNER_TAG"],
-			AmazonAccessKey:                  paramMap["AMAZON_ACCESS_KEY"],
-			AmazonSecretKey:                  paramMap["AMAZON_SECRET_KEY"],
-			MastodonServer:                   paramMap["MASTODON_SERVER"],
-			MastodonClientID:                 paramMap["MASTODON_CLIENT_ID"],
-			MastodonClientSecret:             paramMap["MASTODON_CLIENT_SECRET"],
-			MastodonAccessToken:              paramMap["MASTODON_ACCESS_TOKEN"],
-			SlackBotToken:                    paramMap["SLACK_BOT_TOKEN"],
-			SlackNoticeChannel:               paramMap["SLACK_NOTICE_CHANNEL"],
-			SlackErrorChannel:                paramMap["SLACK_ERROR_CHANNEL"],
-			GistID:                           paramMap["GIST_ID"],
-			GitHubToken:                      paramMap["GITHUB_TOKEN"],
-		}
+			paramMap := plainParams
+			EnvConfig = Config{
+				S3BucketName:                     paramMap["S3_BUCKET_NAME"],
+				S3UnprocessedObjectKey:           paramMap["S3_UNPROCESSED_OBJECT_KEY"],
+				S3PaperBooksObjectKey:            paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
+				S3AuthorsObjectKey:               paramMap["S3_AUTHORS_OBJECT_KEY"],
+				S3ExcludedTitleKeywordsObjectKey: paramMap["S3_EXCLUDED_TITLE_KEYWORDS_OBJECT_KEY"],
+				S3NotifiedObjectKey:              paramMap["S3_NOTIFIED_OBJECT_KEY"],
+				S3UpcomingObjectKey:              paramMap["S3_UPCOMING_OBJECT_KEY"],
+				S3PrevIndexObjectKey:             paramMap["S3_PREV_INDEX_OBJECT_KEY"],
+				S3Region:                         paramMap["S3_REGION"],
+				AmazonPartnerTag:                 paramMap["AMAZON_PARTNER_TAG"],
+				AmazonAccessKey:                  paramMap["AMAZON_ACCESS_KEY"],
+				AmazonSecretKey:                  paramMap["AMAZON_SECRET_KEY"],
+				MastodonServer:                   paramMap["MASTODON_SERVER"],
+				MastodonClientID:                 paramMap["MASTODON_CLIENT_ID"],
+				MastodonClientSecret:             paramMap["MASTODON_CLIENT_SECRET"],
+				MastodonAccessToken:              paramMap["MASTODON_ACCESS_TOKEN"],
+				SlackBotToken:                    paramMap["SLACK_BOT_TOKEN"],
+				SlackNoticeChannel:               paramMap["SLACK_NOTICE_CHANNEL"],
+				SlackErrorChannel:                paramMap["SLACK_ERROR_CHANNEL"],
+				GistID:                           paramMap["GIST_ID"],
+				GitHubToken:                      paramMap["GITHUB_TOKEN"],
+			}
+		})
 	} else {
 		data, err := ioutil.ReadFile("config.json")
 		if err != nil {
@@ -136,7 +145,7 @@ func InitConfig() error {
 		}
 	}
 
-	return nil
+	return configInitErr
 }
 
 func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (map[string]string, error) {
@@ -233,6 +242,19 @@ func GetS3Object(cfg aws.Config, objectKey string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+func PutS3Object(cfg aws.Config, body, objectKey string) error {
+	client := s3.NewFromConfig(cfg)
+
+	_, err := client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:      aws.String(EnvConfig.S3BucketName),
+		Key:         aws.String(objectKey),
+		Body:        strings.NewReader(body),
+		ACL:         types.ObjectCannedACLPrivate,
+		ContentType: aws.String("application/json"),
+	})
+	return err
+}
+
 func UniqueASINs(slice []KindleBook) []KindleBook {
 	seen := make(map[string]struct{})
 	result := []KindleBook{}
@@ -281,7 +303,7 @@ func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(client, q, 5)
+	body, err := requestWithBackoff(client, q)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -311,8 +333,8 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 	return q
 }
 
-func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetries int) (*entity.Response, error) {
-	body, err := requestWithBackoff(client, q, maxRetries)
+func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, error) {
+	body, err := requestWithBackoff(client, q)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -325,15 +347,16 @@ func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetries int) (*e
 	return res, nil
 }
 
-func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetries int) ([]byte, error) {
-	for i := 0; i < maxRetries; i++ {
+func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, error) {
+	for i := 0; i < 5; i++ {
 		body, err := client.Request(q)
 		if err == nil {
+			time.Sleep(time.Second * 2)
 			return body, nil
 		}
 
-		if findStatusCode(err) == 429 {
-			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second
+		if isRetryableError(err) {
+			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * 2
 			waitTime += time.Duration(rand.Intn(1000)) * time.Millisecond
 			log.Printf("Rate limit hit. Retrying in %v...\n", waitTime)
 			time.Sleep(waitTime)
@@ -344,6 +367,17 @@ func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetries in
 	}
 
 	return nil, fmt.Errorf("Max retries reached")
+}
+
+func isRetryableError(err error) bool {
+	if findStatusCode(err) == 429 {
+		return true
+	}
+	if strings.Contains(err.Error(), "EOF") {
+		log.Println(err.Error())
+		return true
+	}
+	return false
 }
 
 func findStatusCode(err error) int {
@@ -376,21 +410,12 @@ func PrintPrettyJSON(v any) {
 }
 
 func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
-	client := s3.NewFromConfig(cfg)
-
 	prettyJSON, err := json.MarshalIndent(ASINs, "", "    ")
 	if err != nil {
 		return err
 	}
 
-	_, err = client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:      aws.String(EnvConfig.S3BucketName),
-		Key:         aws.String(objectKey),
-		Body:        strings.NewReader(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&")),
-		ACL:         types.ObjectCannedACLPrivate,
-		ContentType: aws.String("application/json"),
-	})
-	return err
+	return PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), objectKey)
 }
 
 func AlertToSlack(err error, withMention ...bool) error {

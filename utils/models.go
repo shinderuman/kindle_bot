@@ -13,6 +13,7 @@ type Config struct {
 	S3ExcludedTitleKeywordsObjectKey string `json:"S3ExcludedTitleKeywordsObjectKey"`
 	S3NotifiedObjectKey              string `json:"S3NotifiedObjectKey"`
 	S3UpcomingObjectKey              string `json:"S3UpcomingObjectKey"`
+	S3PrevIndexObjectKey             string `json:"S3PrevIndexObjectKey"`
 	S3Region                         string `json:"S3Region"`
 	AmazonPartnerTag                 string `json:"AmazonPartnerTag"`
 	AmazonAccessKey                  string `json:"AmazonAccessKey"`
