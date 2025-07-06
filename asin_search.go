@@ -81,7 +81,7 @@ func searchKindleEdition(client paapi5.Client, paper entity.Item) (*entity.Item,
 		(*paper.Offers.Listings)[0].Price.Amount+20000,
 	)
 
-	res, err := utils.SearchItems(client, q)
+	res, err := utils.SearchItems(client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("Error searching items: %v", err)
 	}

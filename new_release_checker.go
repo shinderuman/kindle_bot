@@ -20,9 +20,9 @@ import (
 )
 
 type Author struct {
-	Name              string      `json:"Name"`
-	URL               string      `json:"URL"`
-	LatestReleaseDate entity.Date `json:"LatestReleaseDate"`
+	Name              string    `json:"Name"`
+	URL               string    `json:"URL"`
+	LatestReleaseDate time.Time `json:"LatestReleaseDate"`
 }
 
 func main() {
@@ -30,9 +30,6 @@ func main() {
 }
 
 func process() error {
-	start := time.Now()
-	client := utils.CreateClient()
-
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
@@ -45,6 +42,21 @@ func process() error {
 	if author == nil {
 		return nil
 	}
+
+	if err = processCore(cfg, author, authors); err != nil {
+		return err
+	}
+
+	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func processCore(cfg aws.Config, author *Author, authors []Author) error {
+	start := time.Now()
+	client := utils.CreateClient()
 
 	notifiedMap, err := fetchNotifiedASINs(cfg, start)
 	if err != nil {
@@ -59,7 +71,8 @@ func process() error {
 	upcomingMap := make(map[string]utils.KindleBook)
 	items, err := searchAuthorBooks(client, author.Name)
 	if err != nil {
-		return err
+		utils.AlertToSlack(fmt.Errorf("Author: %s\n%s\nError search items: %v", author.Name, author.URL, err), false)
+		return nil
 	}
 
 	if len(items) == 0 {
@@ -67,10 +80,8 @@ func process() error {
 		return nil
 	}
 
-	for i, item := range items {
-		if i == 0 {
-			author.LatestReleaseDate = item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
-		}
+	latest := author.LatestReleaseDate
+	for _, item := range items {
 		if shouldSkip(item, author, notifiedMap, ngWords, start) {
 			continue
 		}
@@ -92,18 +103,25 @@ func process() error {
 		if err := saveASINs(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
 			return err
 		}
+
+		books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+		if err != nil {
+			return err
+		}
+		for _, b := range books {
+			upcomingMap[b.ASIN] = b
+		}
 		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
 			return err
 		}
+	}
+
+	if !author.LatestReleaseDate.Equal(latest) {
 		if err := saveAuthors(cfg, authors); err != nil {
 			return err
 		}
 	}
 
-	if err := utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
-		return err
-	}
-	log.Printf("処理時間: %.2f 分\n", time.Since(start).Minutes())
 	return nil
 }
 
@@ -185,7 +203,7 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 		0,
 	)
 
-	res, err := utils.SearchItems(client, q)
+	res, err := utils.SearchItems(client, q, 1)
 	if err != nil {
 		return nil, fmt.Errorf("Error search items: %v", err)
 	}
@@ -215,10 +233,17 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 	if regexp.MustCompile(`\d{4}年\d{1,2}月`).MatchString(i.ItemInfo.Title.DisplayValue) {
 		return true
 	}
-	if i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Before(now) {
+	if !isNameMatched(author, i) {
 		return true
 	}
-	if !isNameMatched(author, i) {
+	releaseDate := i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Time
+
+	// 発売日がこれまでの最大値より新しい場合、更新する
+	if releaseDate.After(author.LatestReleaseDate) {
+		author.LatestReleaseDate = releaseDate
+	}
+
+	if releaseDate.Before(now) {
 		return true
 	}
 	return false
@@ -273,10 +298,10 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 	}
 
 	sort.Slice(uniqueAuthors, func(i, j int) bool {
-		if uniqueAuthors[i].LatestReleaseDate.After(uniqueAuthors[j].LatestReleaseDate.Time) {
+		if uniqueAuthors[i].LatestReleaseDate.After(uniqueAuthors[j].LatestReleaseDate) {
 			return true
 		}
-		if uniqueAuthors[i].LatestReleaseDate.Before(uniqueAuthors[j].LatestReleaseDate.Time) {
+		if uniqueAuthors[i].LatestReleaseDate.Before(uniqueAuthors[j].LatestReleaseDate) {
 			return false
 		}
 		return uniqueAuthors[i].Name < uniqueAuthors[j].Name

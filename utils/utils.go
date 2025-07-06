@@ -290,7 +290,6 @@ func SortByReleaseDate(books []KindleBook) {
 		if books[i].ReleaseDate.Time.After(books[j].ReleaseDate.Time) {
 			return true
 		} else if books[i].ReleaseDate.Time.Equal(books[j].ReleaseDate.Time) {
-			// ReleaseDate が同じ場合は Title で比較
 			return books[i].Title < books[j].Title
 		}
 		return false
@@ -303,7 +302,7 @@ func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(client, q)
+	body, err := requestWithBackoff(client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -333,8 +332,8 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 	return q
 }
 
-func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, error) {
-	body, err := requestWithBackoff(client, q)
+func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
+	body, err := requestWithBackoff(client, q, maxRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -347,8 +346,8 @@ func SearchItems(client paapi5.Client, q *query.SearchItems) (*entity.Response, 
 	return res, nil
 }
 
-func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T) ([]byte, error) {
-	for i := 0; i < 5; i++ {
+func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
+	for i := 0; i < maxRetryCount; i++ {
 		body, err := client.Request(q)
 		if err == nil {
 			time.Sleep(time.Second * 2)
