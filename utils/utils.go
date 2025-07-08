@@ -535,8 +535,13 @@ func MakeBook(item entity.Item, maxPrice float64) KindleBook {
 	return book
 }
 
-func LogAndNotify(message string) {
+func LogAndNotify(message string, sendToSlack bool) {
 	log.Println(message)
+	if sendToSlack {
+		if _, err := TootMastodon(message); err != nil {
+			AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err))
+		}
+	}
 	if err := PostToSlack(message); err != nil {
 		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err))
 	}

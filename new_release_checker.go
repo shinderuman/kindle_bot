@@ -76,7 +76,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 	}
 
 	if len(items) == 0 {
-		utils.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL))
+		utils.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL), false)
 		return nil
 	}
 
@@ -86,13 +86,13 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 			continue
 		}
 
-		utils.LogAndNotify(fmt.Sprintf("新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
+		utils.LogAndNotify(fmt.Sprintf("📚新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
 			item.ItemInfo.Title.DisplayValue,
 			author.Name,
 			item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
 			item.ASIN,
 			item.DetailPageURL,
-		))
+		), true)
 
 		b := utils.MakeBook(item, 0)
 		notifiedMap[item.ASIN] = b

@@ -51,7 +51,7 @@ func process() error {
 			}
 
 			if kindleItem != nil {
-				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem))
+				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
 				newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
 			} else {
 				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
@@ -135,7 +135,7 @@ func cleanTitle(title string) string {
 
 func formatSlackMessage(paper, kindle entity.Item) string {
 	return fmt.Sprintf(
-		"📚 %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+		"📚新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
 		kindle.ItemInfo.Title.DisplayValue,
 		(*paper.Offers.Listings)[0].Price.Amount,
 		paper.DetailPageURL,

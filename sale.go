@@ -83,9 +83,7 @@ func processASINs(client paapi5.Client, original []utils.KindleBook) []utils.Kin
 			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
 			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
-				if err := notifyDiscount(item, strings.Join(conditions, " ")); err != nil {
-					utils.AlertToSlack(err)
-				}
+				utils.LogAndNotify(formatSlackMessage(item, conditions), true)
 			} else {
 				result = append(result, utils.MakeBook(item, maxPrice))
 			}
@@ -117,15 +115,11 @@ func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
 	return conditions
 }
 
-func notifyDiscount(item entity.Item, conditions string) error {
-	message := fmt.Sprintf("📚 %s\n条件達成: %s\n%s", item.ItemInfo.Title.DisplayValue, conditions, item.DetailPageURL)
-
-	status, err := utils.TootMastodon(message)
-	if err != nil {
-		return fmt.Errorf("Failed to post to Mastodon: %v", err)
-	}
-
-	utils.LogAndNotify(fmt.Sprintf("%s\n\n%s", message, status.URI))
-
-	return nil
+func formatSlackMessage(item entity.Item, conditions []string) string {
+	return fmt.Sprintf(
+		"📚 %s\n条件達成: %s\n%s",
+		item.ItemInfo.Title.DisplayValue,
+		strings.Join(conditions, " "),
+		item.DetailPageURL,
+	)
 }
