@@ -103,13 +103,13 @@ func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
 
 	var conditions []string
 	if diff := maxPrice - amount; diff >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅価格差 %.0f円", diff))
+		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", diff))
 	}
 	if points >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅ポイント %dpt", points))
+		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", points))
 	}
 	if percent := float64(points) / amount * 100; percent >= 20 {
-		conditions = append(conditions, fmt.Sprintf("✅ポイント還元 %.1f%%", percent))
+		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", percent))
 	}
 
 	return conditions
@@ -117,7 +117,7 @@ func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
 
 func formatSlackMessage(item entity.Item, conditions []string) string {
 	return fmt.Sprintf(
-		"📚 %s\n条件達成: %s\n%s",
+		"📚 セール情報: %s\n条件達成: %s\n%s",
 		item.ItemInfo.Title.DisplayValue,
 		strings.Join(conditions, " "),
 		item.DetailPageURL,

@@ -86,7 +86,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 			continue
 		}
 
-		utils.LogAndNotify(fmt.Sprintf("📚新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
+		utils.LogAndNotify(fmt.Sprintf("📚 新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
 			item.ItemInfo.Title.DisplayValue,
 			author.Name,
 			item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
@@ -178,9 +178,11 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 }
 
 func getIndexByTime(authorCount int) int {
+	if authorCount <= 0 {
+		return 0
+	}
 	sec := time.Now().Unix() % 86400
-	interval := 86400 / authorCount
-	return int(sec) / interval
+	return int(sec * int64(authorCount) / 86400)
 }
 
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {

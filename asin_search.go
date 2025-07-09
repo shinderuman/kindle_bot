@@ -135,7 +135,7 @@ func cleanTitle(title string) string {
 
 func formatSlackMessage(paper, kindle entity.Item) string {
 	return fmt.Sprintf(
-		"📚新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
 		kindle.ItemInfo.Title.DisplayValue,
 		(*paper.Offers.Listings)[0].Price.Amount,
 		paper.DetailPageURL,
