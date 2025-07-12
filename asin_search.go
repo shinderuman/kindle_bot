@@ -36,9 +36,11 @@ func process() error {
 		items, err := utils.GetItems(client, chunk)
 		if err != nil {
 			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
+			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
 			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
+		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
 		for _, paper := range items.ItemsResult.Items {
 			log.Println(paper.ItemInfo.Title.DisplayValue)
@@ -47,8 +49,10 @@ func process() error {
 			if err != nil {
 				utils.AlertToSlack(err, false)
 				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
+				utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
 				continue
 			}
+			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
 			if kindleItem != nil {
 				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)

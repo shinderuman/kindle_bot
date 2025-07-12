@@ -22,6 +22,8 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -538,4 +540,19 @@ func LogAndNotify(message string, sendToSlack bool) {
 	if err := PostToSlack(message, EnvConfig.SlackErrorChannel); err != nil {
 		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), false)
 	}
+}
+
+func PutMetric(cfg aws.Config, namespace, metricName string) {
+	cw := cloudwatch.NewFromConfig(cfg)
+	_, _ = cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
+		Namespace: aws.String(namespace),
+		MetricData: []cwtypes.MetricDatum{
+			{
+				MetricName: aws.String(metricName),
+				Value:      aws.Float64(1.0),
+				Unit:       cwtypes.StandardUnitCount,
+				Timestamp:  aws.Time(time.Now()),
+			},
+		},
+	})
 }

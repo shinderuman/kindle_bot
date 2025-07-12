@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
@@ -35,7 +36,7 @@ func process() error {
 		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
 	}
 
-	newBooks := processASINs(client, append(originalBooks, upcomingBooks...))
+	newBooks := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
 
 	utils.SortByReleaseDate(newBooks)
 	if reflect.DeepEqual(originalBooks, newBooks) {
@@ -57,17 +58,19 @@ func process() error {
 	return nil
 }
 
-func processASINs(client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
+func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
 	var result []utils.KindleBook
 
 	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
 		resp, err := utils.GetItems(client, chunk)
 		if err != nil {
 			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
+			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
 			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
 
+		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
 			log.Println(item.ItemInfo.Title.DisplayValue)
 
