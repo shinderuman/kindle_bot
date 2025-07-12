@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
@@ -53,6 +56,8 @@ func process() error {
 		return err
 	}
 
+	putMetric(cfg, "SlotSuccess")
+
 	return nil
 }
 
@@ -73,6 +78,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 	upcomingMap := make(map[string]utils.KindleBook)
 	items, err := searchAuthorBooks(client, author.Name)
 	if err != nil {
+		putMetric(cfg, "SlotFailure")
 		return fmt.Errorf("Author: %s\n%s\nError search items: %v", author.Name, author.URL, err)
 	}
 
@@ -317,4 +323,19 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 	}
 
 	return utils.PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), utils.EnvConfig.S3AuthorsObjectKey)
+}
+
+func putMetric(cfg aws.Config, metricName string) {
+	cw := cloudwatch.NewFromConfig(cfg)
+	_, _ = cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
+		Namespace: aws.String("KindleBot/NewReleaseChecker"),
+		MetricData: []types.MetricDatum{
+			{
+				MetricName: aws.String(metricName),
+				Value:      aws.Float64(1.0),
+				Unit:       types.StandardUnitCount,
+				Timestamp:  aws.Time(time.Now()),
+			},
+		},
+	})
 }

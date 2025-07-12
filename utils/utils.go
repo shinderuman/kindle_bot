@@ -355,6 +355,10 @@ func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetryCount
 		}
 
 		if isRetryableError(err) {
+			if i == maxRetryCount-1 {
+				break
+			}
+
 			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * 2
 			waitTime += time.Duration(rand.Intn(1000)) * time.Millisecond
 			log.Printf("Rate limit hit. Retrying in %v...\n", waitTime)
