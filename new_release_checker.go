@@ -52,7 +52,7 @@ func process() error {
 		return err
 	}
 
-	if err = processCore(cfg, author, authors); err != nil {
+	if err = processCore(cfg, author, authors, index); err != nil {
 		return err
 	}
 
@@ -61,7 +61,7 @@ func process() error {
 	return nil
 }
 
-func processCore(cfg aws.Config, author *Author, authors []Author) error {
+func processCore(cfg aws.Config, author *Author, authors []Author, index int) error {
 	start := time.Now()
 	client := utils.CreateClient()
 
@@ -79,7 +79,14 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 	items, err := searchAuthorBooks(client, author.Name)
 	if err != nil {
 		putMetric(cfg, "SlotFailure")
-		return fmt.Errorf("Author: %s\n%s\nError search items: %v", author.Name, author.URL, err)
+		return fmt.Errorf(
+			"Author %04d / %04d: %s\n%s\nError search items: %v",
+			index+1,
+			len(authors),
+			author.Name,
+			author.URL,
+			err,
+		)
 	}
 
 	if len(items) == 0 {
