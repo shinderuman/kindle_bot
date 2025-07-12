@@ -19,6 +19,8 @@ import (
 	"kindle_bot/utils"
 )
 
+const secondsPerCycle = 2 * 24 * 60 * 60
+
 type Author struct {
 	Name              string    `json:"Name"`
 	URL               string    `json:"URL"`
@@ -43,11 +45,11 @@ func process() error {
 		return nil
 	}
 
-	if err = processCore(cfg, author, authors); err != nil {
+	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
 		return err
 	}
 
-	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
+	if err = processCore(cfg, author, authors); err != nil {
 		return err
 	}
 
@@ -71,8 +73,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author) error {
 	upcomingMap := make(map[string]utils.KindleBook)
 	items, err := searchAuthorBooks(client, author.Name)
 	if err != nil {
-		utils.AlertToSlack(fmt.Errorf("Author: %s\n%s\nError search items: %v", author.Name, author.URL, err), false)
-		return nil
+		return fmt.Errorf("Author: %s\n%s\nError search items: %v", author.Name, author.URL, err)
 	}
 
 	if len(items) == 0 {
@@ -155,6 +156,7 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
+
 	if prevIndex == index {
 		log.Println("Not my slot, skipping")
 		return nil, authors, index, nil
@@ -181,8 +183,8 @@ func getIndexByTime(authorCount int) int {
 	if authorCount <= 0 {
 		return 0
 	}
-	sec := time.Now().Unix() % 86400
-	return int(sec * int64(authorCount) / 86400)
+	sec := time.Now().Unix() % secondsPerCycle
+	return int(sec * int64(authorCount) / secondsPerCycle)
 }
 
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {

@@ -49,7 +49,7 @@ func Run(process func() error) {
 	handler := func(ctx context.Context) (string, error) {
 		err := process()
 		if err != nil {
-			AlertToSlack(err)
+			AlertToSlack(err, false)
 		}
 		return "Processing complete: " + getFilename(), err
 	}
@@ -417,27 +417,16 @@ func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	return PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), objectKey)
 }
 
-func AlertToSlack(err error, withMention ...bool) error {
-	log.Println(err)
-	w := true
-	if len(withMention) > 0 {
-		w = withMention[0]
-	}
-
-	if w {
+func AlertToSlack(err error, withMention bool) error {
+	if withMention {
 		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX> %s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
 	} else {
-		return PostToSlack(fmt.Sprintf("%s\n```%v```", err), getFilename(), EnvConfig.SlackErrorChannel)
+		return PostToSlack(fmt.Sprintf("%s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
 	}
 }
 
-func PostToSlack(message string, channel ...string) error {
+func PostToSlack(message string, targetChannel string) error {
 	api := slack.New(EnvConfig.SlackBotToken)
-
-	targetChannel := EnvConfig.SlackNoticeChannel
-	if len(channel) > 0 {
-		targetChannel = channel[0]
-	}
 
 	_, _, err := api.PostMessage(
 		targetChannel,
@@ -539,10 +528,10 @@ func LogAndNotify(message string, sendToSlack bool) {
 	log.Println(message)
 	if sendToSlack {
 		if _, err := TootMastodon(message); err != nil {
-			AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err))
+			AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err), false)
 		}
 	}
-	if err := PostToSlack(message); err != nil {
-		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err))
+	if err := PostToSlack(message, EnvConfig.SlackErrorChannel); err != nil {
+		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), false)
 	}
 }

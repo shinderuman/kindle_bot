@@ -75,7 +75,7 @@ func processASINs(client paapi5.Client, original []utils.KindleBook) []utils.Kin
 				utils.AlertToSlack(fmt.Errorf(
 					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
 					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
-				))
+				), false)
 				continue
 			}
 

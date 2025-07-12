@@ -45,7 +45,7 @@ func process() error {
 
 			kindleItem, err := searchKindleEdition(client, paper)
 			if err != nil {
-				utils.AlertToSlack(err)
+				utils.AlertToSlack(err, false)
 				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
 				continue
 			}
