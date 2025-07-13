@@ -62,7 +62,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 	var result []utils.KindleBook
 
 	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
-		resp, err := utils.GetItems(client, chunk)
+		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
 			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")

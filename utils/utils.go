@@ -298,13 +298,13 @@ func SortByReleaseDate(books []KindleBook) {
 	})
 }
 
-func GetItems(client paapi5.Client, asinChunk []string) (*entity.Response, error) {
+func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity.Response, error) {
 	q := query.NewGetItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
 		ASINs(asinChunk).
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(client, q, 5)
+	body, err := requestWithBackoff(cfg, client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -334,8 +334,8 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 	return q
 }
 
-func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
-	body, err := requestWithBackoff(client, q, maxRetryCount)
+func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
+	body, err := requestWithBackoff(cfg, client, q, maxRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -348,9 +348,10 @@ func SearchItems(client paapi5.Client, q *query.SearchItems, maxRetryCount int) 
 	return res, nil
 }
 
-func requestWithBackoff[T paapi5.Query](client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
+func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
 	for i := 0; i < maxRetryCount; i++ {
 		body, err := client.Request(q)
+		PutMetric(cfg, "KindleBot/Usage", "PAAPIRequest")
 		if err == nil {
 			time.Sleep(time.Second * 2)
 			return body, nil
@@ -542,9 +543,9 @@ func LogAndNotify(message string, sendToSlack bool) {
 	}
 }
 
-func PutMetric(cfg aws.Config, namespace, metricName string) {
+func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	cw := cloudwatch.NewFromConfig(cfg)
-	_, _ = cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
+	_, err := cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
 		Namespace: aws.String(namespace),
 		MetricData: []cwtypes.MetricDatum{
 			{
@@ -555,4 +556,5 @@ func PutMetric(cfg aws.Config, namespace, metricName string) {
 			},
 		},
 	})
+	return err
 }

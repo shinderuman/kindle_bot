@@ -33,7 +33,7 @@ func process() error {
 
 	var newUnprocessed, newPaperBooks []utils.KindleBook
 	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10) {
-		items, err := utils.GetItems(client, chunk)
+		items, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
@@ -45,7 +45,7 @@ func process() error {
 		for _, paper := range items.ItemsResult.Items {
 			log.Println(paper.ItemInfo.Title.DisplayValue)
 
-			kindleItem, err := searchKindleEdition(client, paper)
+			kindleItem, err := searchKindleEdition(cfg, client, paper)
 			if err != nil {
 				utils.AlertToSlack(err, false)
 				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
@@ -77,7 +77,7 @@ func process() error {
 	return nil
 }
 
-func searchKindleEdition(client paapi5.Client, paper entity.Item) (*entity.Item, error) {
+func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item) (*entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
 		query.Title,
@@ -85,7 +85,7 @@ func searchKindleEdition(client paapi5.Client, paper entity.Item) (*entity.Item,
 		(*paper.Offers.Listings)[0].Price.Amount+20000,
 	)
 
-	res, err := utils.SearchItems(client, q, 5)
+	res, err := utils.SearchItems(cfg, client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("Error searching items: %v", err)
 	}

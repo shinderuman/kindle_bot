@@ -72,7 +72,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	}
 
 	upcomingMap := make(map[string]utils.KindleBook)
-	items, err := searchAuthorBooks(client, author.Name)
+	items, err := searchAuthorBooks(cfg, client, author.Name)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
 		return fmt.Errorf(
@@ -208,7 +208,7 @@ func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 	return keywords, nil
 }
 
-func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, error) {
+func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) ([]entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
 		query.Author,
@@ -216,7 +216,7 @@ func searchAuthorBooks(client paapi5.Client, authorName string) ([]entity.Item, 
 		0,
 	)
 
-	res, err := utils.SearchItems(client, q, 1)
+	res, err := utils.SearchItems(cfg, client, q, 1)
 	if err != nil {
 		return nil, fmt.Errorf("Error search items: %v", err)
 	}
