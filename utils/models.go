@@ -25,7 +25,6 @@ type Config struct {
 	SlackBotToken                    string `json:"SlackBotToken"`
 	SlackNoticeChannel               string `json:"SlackNoticeChannel"`
 	SlackErrorChannel                string `json:"SlackErrorChannel"`
-	GistID                           string `json:"GistID"`
 	GitHubToken                      string `json:"GitHubToken"`
 }
 
@@ -36,4 +35,14 @@ type KindleBook struct {
 	CurrentPrice float64     `json:"CurrentPrice"`
 	MaxPrice     float64     `json:"MaxPrice"`
 	URL          string      `json:"URL"`
+}
+
+type GistFileContent struct {
+	Content string `json:"content"`
+}
+
+type GistFiles map[string]GistFileContent
+
+type GistPayload struct {
+	Files GistFiles `json:"files"`
 }

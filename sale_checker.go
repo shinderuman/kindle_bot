@@ -14,6 +14,11 @@ import (
 	"kindle_bot/utils"
 )
 
+const (
+	gistID       = "571a55fc0f9e56156cae277ded0cf09c"
+	gistFilename = "わいのセールになってほしい本.md"
+)
+
 func main() {
 	utils.Run(process)
 }
@@ -47,7 +52,7 @@ func process() error {
 		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 	}
 
-	if err := utils.UpdateGist(newBooks, "わいのセールになってほしい本.md"); err != nil {
+	if err := updateGist(newBooks); err != nil {
 		return fmt.Errorf("Error update gist: %s", err)
 	}
 
@@ -125,4 +130,15 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 		strings.Join(conditions, " "),
 		item.DetailPageURL,
 	)
+}
+
+func updateGist(books []utils.KindleBook) error {
+	var lines []string
+	for _, book := range books {
+		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", book.ReleaseDate.Format("2006-01-02"), book.Title, book.URL))
+	}
+
+	markdown := fmt.Sprintf("## 合計 %d冊\n%s", len(books), strings.Join(lines, "\n"))
+
+	return utils.UpdateGist(gistID, gistFilename, markdown)
 }

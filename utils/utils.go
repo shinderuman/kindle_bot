@@ -132,7 +132,6 @@ func InitConfig() error {
 				SlackBotToken:                    paramMap["SLACK_BOT_TOKEN"],
 				SlackNoticeChannel:               paramMap["SLACK_NOTICE_CHANNEL"],
 				SlackErrorChannel:                paramMap["SLACK_ERROR_CHANNEL"],
-				GistID:                           paramMap["GIST_ID"],
 				GitHubToken:                      paramMap["GITHUB_TOKEN"],
 			}
 		})
@@ -453,23 +452,16 @@ func TootMastodon(message string) (*mastodon.Status, error) {
 	return c.PostStatus(context.Background(), &mastodon.Toot{Status: message, Visibility: "public"})
 }
 
-func UpdateGist(books []KindleBook, filename string) error {
-	url := fmt.Sprintf("https://api.github.com/gists/%s", EnvConfig.GistID)
-
-	var lines []string
-	for _, book := range books {
-		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", book.ReleaseDate.Format("2006-01-02"), book.Title, book.URL))
-	}
-
-	markdown := fmt.Sprintf("## 合計 %d冊\n%s", len(books), strings.Join(lines, "\n"))
-
-	payload := map[string]interface{}{
-		"files": map[string]interface{}{
-			filename: map[string]string{
-				"content": markdown,
+func UpdateGist(gistID, filename, markdown string) error {
+	payload := GistPayload{
+		Files: GistFiles{
+			filename: {
+				Content: markdown,
 			},
 		},
 	}
+
+	url := fmt.Sprintf("https://api.github.com/gists/%s", gistID)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {

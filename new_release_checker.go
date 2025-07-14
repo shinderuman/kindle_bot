@@ -18,7 +18,12 @@ import (
 	"kindle_bot/utils"
 )
 
-const secondsPerCycle = 2 * 24 * 60 * 60
+const (
+	secondsPerCycle = 2 * 24 * 60 * 60
+
+	gistID       = "d5116b8fdce5cdd1995c2a7a3be325f4"
+	gistFilename = "新刊チェック中の作者.md"
+)
 
 type Author struct {
 	Name              string    `json:"Name"`
@@ -128,6 +133,9 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 
 	if !author.LatestReleaseDate.Equal(latest) {
 		if err := saveAuthors(cfg, authors); err != nil {
+			return err
+		}
+		if err := updateGist(authors); err != nil {
 			return err
 		}
 	}
@@ -326,4 +334,15 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 	}
 
 	return utils.PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), utils.EnvConfig.S3AuthorsObjectKey)
+}
+
+func updateGist(authors []Author) error {
+	var lines []string
+	for _, author := range authors {
+		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", author.LatestReleaseDate.Format("2006-01-02"), author.Name, author.URL))
+	}
+
+	markdown := fmt.Sprintf("## 合計 %d人(最新の単行本発売日降順)\n%s", len(authors), strings.Join(lines, "\n"))
+
+	return utils.UpdateGist(gistID, gistFilename, markdown)
 }
