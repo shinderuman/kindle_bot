@@ -132,6 +132,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	}
 
 	if !author.LatestReleaseDate.Equal(latest) {
+		authors = SortUniqueAuthors(authors)
 		if err := saveAuthors(cfg, authors); err != nil {
 			return err
 		}
@@ -307,7 +308,7 @@ func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error 
 	return utils.SaveASINs(cfg, list, key)
 }
 
-func saveAuthors(cfg aws.Config, authors []Author) error {
+func SortUniqueAuthors(authors []Author) []Author {
 	seen := make(map[string]bool)
 	uniqueAuthors := make([]Author, 0, len(authors))
 
@@ -328,7 +329,11 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 		return uniqueAuthors[i].Name < uniqueAuthors[j].Name
 	})
 
-	prettyJSON, err := json.MarshalIndent(uniqueAuthors, "", "    ")
+	return uniqueAuthors
+}
+
+func saveAuthors(cfg aws.Config, authors []Author) error {
+	prettyJSON, err := json.MarshalIndent(authors, "", "    ")
 	if err != nil {
 		return err
 	}

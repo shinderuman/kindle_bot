@@ -530,7 +530,7 @@ func LogAndNotify(message string, sendToSlack bool) {
 			AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err), false)
 		}
 	}
-	if err := PostToSlack(message, EnvConfig.SlackErrorChannel); err != nil {
+	if err := PostToSlack(message, EnvConfig.SlackNoticeChannel); err != nil {
 		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), false)
 	}
 }
