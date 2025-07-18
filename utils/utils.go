@@ -348,6 +348,7 @@ func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, max
 }
 
 func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
+	const maxWait = 30 * time.Second
 	for i := 0; i < maxRetryCount; i++ {
 		body, err := client.Request(q)
 		PutMetric(cfg, "KindleBot/Usage", "PAAPIRequest")
@@ -362,7 +363,12 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 			}
 
 			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * 2
-			waitTime += time.Duration(rand.Intn(1000)) * time.Millisecond
+			waitTime += time.Duration(rand.Intn(500)) * time.Millisecond
+
+			if waitTime > maxWait {
+				waitTime = maxWait
+			}
+
 			log.Printf("Rate limit hit. Retrying in %v...\n", waitTime)
 			time.Sleep(waitTime)
 			continue
@@ -371,6 +377,7 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		return nil, err
 	}
 
+	log.Println("Max retries reached")
 	return nil, fmt.Errorf("Max retries reached")
 }
 

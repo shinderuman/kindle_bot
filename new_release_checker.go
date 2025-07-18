@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	secondsPerCycle = 2 * 24 * 60 * 60
+	secondsPerCycle = 1 * 24 * 60 * 60
 
 	gistID       = "d5116b8fdce5cdd1995c2a7a3be325f4"
 	gistFilename = "新刊チェック中の作者.md"
+
+	paapiMaxRetryCount = 3
 )
 
 type Author struct {
@@ -225,7 +227,7 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 		0,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, 1)
+	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("Error search items: %v", err)
 	}
