@@ -4,9 +4,9 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
 
 ## Features
 
-* Checks if paper books now have Kindle editions (via `paper_to_kindle_checker.go`)
-* Detects sale prices of Kindle books (via `sale_checker.go`)
-* Finds new releases from favorite authors (via `new_release_checker.go`)
+* Checks if paper books now have Kindle editions (via `cmd/paper-to-kindle-checker`)
+* Detects sale prices of Kindle books (via `cmd/sale-checker`)
+* Finds new releases from favorite authors (via `cmd/new-release-checker`)
 * Posts updates to Mastodon
 * Sends alerts to Slack
 * Stores data in S3 and tracks metrics in CloudWatch
@@ -28,7 +28,17 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
    cd kindle_bot
    ```
 
-2. **Configure secrets in AWS SSM Parameter Store:**
+2. **Configure local settings (for local development):**
+
+   ```bash
+   # Copy the example configuration file
+   cp config.json.example config.json
+   
+   # Edit config.json with your actual credentials
+   # Note: config.json is ignored by git for security
+   ```
+
+3. **Configure secrets in AWS SSM Parameter Store (for Lambda deployment):**
 
    * Parameters should be stored under `/myapp/plain/` and `/myapp/secure/`
    * Example keys:
@@ -36,22 +46,76 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
      * `/myapp/plain/S3_BUCKET_NAME`
      * `/myapp/secure/AMAZON_ACCESS_KEY`
 
-3. **Build and deploy each Lambda function (example):**
+4. **Build and deploy each Lambda function:**
 
    ```bash
-   GOOS=linux GOARCH=amd64 go build -o paper_to_kindle_checker paper_to_kindle_checker.go
-   zip paper_to_kindle_checker.zip paper_to_kindle_checker
-   aws lambda update-function-code --function-name paper_to_kindle_checker --zip-file fileb://paper_to_kindle_checker.zip
+   # Build paper-to-kindle-checker
+   GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+   zip paper-to-kindle-checker.zip paper-to-kindle-checker
+   aws lambda update-function-code --function-name paper-to-kindle-checker --zip-file fileb://paper-to-kindle-checker.zip
+
+   # Build sale-checker
+   GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
+   zip sale-checker.zip sale-checker
+   aws lambda update-function-code --function-name sale-checker --zip-file fileb://sale-checker.zip
+
+   # Build new-release-checker
+   GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
+   zip new-release-checker.zip new-release-checker
+   aws lambda update-function-code --function-name new-release-checker --zip-file fileb://new-release-checker.zip
    ```
 
-4. **Configure CloudWatch schedule/event triggers as needed.**
+5. **Configure CloudWatch schedule/event triggers as needed.**
 
-## File Overview
+## Project Structure
 
-* `utils/` - shared utility functions (SSM, S3, PA-API, CloudWatch, Slack, Mastodon)
-* `paper_to_kindle_checker.go` - main logic for detecting Kindle versions of paper books
-* `sale_checker.go` - logic for detecting sale prices
-* `new_release_checker.go` - logic for detecting new Kindle releases by authors
+```
+kindle_bot/
+├── cmd/                                    # Main applications
+│   ├── new-release-checker/               # New release monitoring
+│   │   └── main.go
+│   ├── paper-to-kindle-checker/           # Paper to Kindle conversion checker
+│   │   └── main.go
+│   └── sale-checker/                      # Sale monitoring
+│       └── main.go
+├── utils/                                 # Shared utility functions
+│   ├── models.go                          # Data models
+│   └── utils.go                           # Common utilities
+└── config.json.example                    # Configuration template
+```
+
+## Usage
+
+### Local Development
+
+Run applications locally for testing:
+
+```bash
+# Run new release checker
+go run ./cmd/new-release-checker
+
+# Run paper to kindle checker
+go run ./cmd/paper-to-kindle-checker
+
+# Run sale checker
+go run ./cmd/sale-checker
+```
+
+### Building
+
+Build all applications:
+
+```bash
+# Build for local use
+go build ./cmd/new-release-checker
+go build ./cmd/paper-to-kindle-checker
+go build ./cmd/sale-checker
+
+# Build for Lambda deployment (Linux)
+GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
+GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
+```
 
 ## License
 
@@ -65,9 +129,9 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
 
 ## 主な機能
 
-* 紙書籍に Kindle 版が出たかを検出（`paper_to_kindle_checker.go`）
-* Kindle 本の値下げを検出（`sale_checker.go`）
-* 著者の新刊 Kindle 本を検出（`new_release_checker.go`）
+* 紙書籍に Kindle 版が出たかを検出（`cmd/paper-to-kindle-checker`）
+* Kindle 本の値下げを検出（`cmd/sale-checker`）
+* 著者の新刊 Kindle 本を検出（`cmd/new-release-checker`）
 * Mastodon への投稿
 * Slack への通知
 * S3 によるデータ保存、CloudWatch によるメトリクス記録
@@ -89,7 +153,17 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
    cd kindle_bot
    ```
 
-2. **AWS SSM にシークレット情報を保存**
+2. **ローカル設定を構成（ローカル開発用）**
+
+   ```bash
+   # 設定ファイルのテンプレートをコピー
+   cp config.json.example config.json
+   
+   # config.json を実際の認証情報で編集
+   # 注意: config.json はセキュリティのため git で無視されます
+   ```
+
+3. **AWS SSM にシークレット情報を保存（Lambda デプロイ用）**
 
    * `/myapp/plain/` と `/myapp/secure/` 以下に設定します
    * 例：
@@ -97,22 +171,76 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
      * `/myapp/plain/S3_BUCKET_NAME`
      * `/myapp/secure/AMAZON_ACCESS_KEY`
 
-3. **各 Lambda 関数をビルドしてデプロイ**（例）
+4. **各 Lambda 関数をビルドしてデプロイ**
 
    ```bash
-   GOOS=linux GOARCH=amd64 go build -o paper_to_kindle_checker paper_to_kindle_checker.go
-   zip paper_to_kindle_checker.zip paper_to_kindle_checker
-   aws lambda update-function-code --function-name paper_to_kindle_checker --zip-file fileb://paper_to_kindle_checker.zip
+   # paper-to-kindle-checker をビルド
+   GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+   zip paper-to-kindle-checker.zip paper-to-kindle-checker
+   aws lambda update-function-code --function-name paper-to-kindle-checker --zip-file fileb://paper-to-kindle-checker.zip
+
+   # sale-checker をビルド
+   GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
+   zip sale-checker.zip sale-checker
+   aws lambda update-function-code --function-name sale-checker --zip-file fileb://sale-checker.zip
+
+   # new-release-checker をビルド
+   GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
+   zip new-release-checker.zip new-release-checker
+   aws lambda update-function-code --function-name new-release-checker --zip-file fileb://new-release-checker.zip
    ```
 
-4. **必要に応じて CloudWatch イベントを設定してください**
+5. **必要に応じて CloudWatch イベントを設定してください**
 
-## ファイル構成
+## プロジェクト構成
 
-* `utils/`：共通ユーティリティ（SSM, S3, PA-API, CloudWatch, Slack, Mastodon）
-* `paper_to_kindle_checker.go`：紙書籍の Kindle 化を検出
-* `sale_checker.go`：Kindle 本のセール価格を検出
-* `new_release_checker.go`：著者の新刊 Kindle 本を検出
+```
+kindle_bot/
+├── cmd/                                    # メインアプリケーション
+│   ├── new-release-checker/               # 新刊監視
+│   │   └── main.go
+│   ├── paper-to-kindle-checker/           # 紙書籍→Kindle版チェッカー
+│   │   └── main.go
+│   └── sale-checker/                      # セール監視
+│       └── main.go
+├── utils/                                 # 共通ユーティリティ
+│   ├── models.go                          # データモデル
+│   └── utils.go                           # 共通機能
+└── config.json.example                    # 設定ファイルのテンプレート
+```
+
+## 使用方法
+
+### ローカル開発
+
+テスト用にローカルでアプリケーションを実行：
+
+```bash
+# 新刊チェッカーを実行
+go run ./cmd/new-release-checker
+
+# 紙書籍→Kindle版チェッカーを実行
+go run ./cmd/paper-to-kindle-checker
+
+# セールチェッカーを実行
+go run ./cmd/sale-checker
+```
+
+### ビルド
+
+全アプリケーションをビルド：
+
+```bash
+# ローカル用ビルド
+go build ./cmd/new-release-checker
+go build ./cmd/paper-to-kindle-checker
+go build ./cmd/sale-checker
+
+# Lambda デプロイ用ビルド（Linux）
+GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
+GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
+```
 
 ## ライセンス
 

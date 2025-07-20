@@ -1,0 +1,22 @@
+{
+	"S3BucketName": "your-s3-bucket-name",
+	"S3UnprocessedObjectKey": "unprocessed_asins.json",
+	"S3PaperBooksObjectKey": "paper_books_asins.json",
+	"S3AuthorsObjectKey": "authors.json",
+	"S3ExcludedTitleKeywordsObjectKey": "excluded_title_keywords.json",
+	"S3NotifiedObjectKey": "notified_asins.json",
+	"S3UpcomingObjectKey": "upcoming_asins.json",
+	"S3PrevIndexObjectKey": "prev_index.txt",
+	"S3Region": "ap-northeast-1",
+	"AmazonPartnerTag": "your-partner-tag",
+	"AmazonAccessKey": "YOUR_AMAZON_ACCESS_KEY",
+	"AmazonSecretKey": "YOUR_AMAZON_SECRET_KEY",
+	"MastodonServer": "https://your-mastodon-server.invalid",
+	"MastodonClientID": "YOUR_MASTODON_CLIENT_ID",
+	"MastodonClientSecret": "YOUR_MASTODON_CLIENT_SECRET",
+	"MastodonAccessToken": "YOUR_MASTODON_ACCESS_TOKEN",
+	"SlackBotToken": "xoxb-YOUR-SLACK-BOT-TOKEN",
+	"SlackNoticeChannel": "YOUR_SLACK_NOTICE_CHANNEL_ID",
+	"SlackErrorChannel": "YOUR_SLACK_ERROR_CHANNEL_ID",
+	"GitHubToken": "ghp_YOUR_GITHUB_TOKEN"
+}
