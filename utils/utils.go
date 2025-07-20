@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -36,12 +38,25 @@ import (
 	"github.com/slack-go/slack"
 )
 
+// Constants
+const (
+	DefaultChunkSize   = 10
+	DefaultSearchLimit = 5
+	DefaultPriceBuffer = 20000
+	MinPriceDiff       = 151
+	MinPoints          = 151
+	MinPointPercent    = 20.0
+	KindleBinding      = "Kindle版"
+)
+
+// Global variables
 var (
 	EnvConfig     Config
 	configInitErr error
 	once          sync.Once
 )
 
+// Main entry point
 func Run(process func() error) {
 	if err := InitConfig(); err != nil {
 		log.Println("Error loading configuration:", err)
@@ -63,33 +78,7 @@ func Run(process func() error) {
 	}
 }
 
-func getFilename() string {
-	const maxDepth = 50
-	pcs := make([]uintptr, maxDepth)
-	n := runtime.Callers(0, pcs)
-	frames := runtime.CallersFrames(pcs[:n])
-
-	var prevFrame *runtime.Frame
-
-	for {
-		frame, more := frames.Next()
-		baseFile := filepath.Base(frame.File)
-		if baseFile == "proc.go" {
-			if prevFrame != nil {
-				return filepath.Base(prevFrame.File)
-			}
-			return "unknown"
-		}
-
-		prevFrame = &frame
-		if !more {
-			break
-		}
-	}
-
-	return "unknown"
-}
-
+// Configuration functions
 func InitConfig() error {
 	if IsLambda() {
 		once.Do(func() {
@@ -201,6 +190,7 @@ func InitAWSConfig() (aws.Config, error) {
 	return cfg, nil
 }
 
+// PA API functions
 func CreateClient() paapi5.Client {
 	return paapi5.New(
 		paapi5.WithMarketplace(paapi5.LocaleJapan),
@@ -210,91 +200,6 @@ func CreateClient() paapi5.Client {
 		EnvConfig.AmazonSecretKey,
 		paapi5.WithHttpClient(&http.Client{}),
 	)
-}
-
-func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
-	body, err := GetS3Object(cfg, objectKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var ASINs []KindleBook
-	if err := json.Unmarshal(body, &ASINs); err != nil {
-		return nil, err
-	}
-
-	return ASINs, nil
-}
-
-func GetS3Object(cfg aws.Config, objectKey string) ([]byte, error) {
-	client := s3.NewFromConfig(cfg)
-
-	input := &s3.GetObjectInput{
-		Bucket: aws.String(EnvConfig.S3BucketName),
-		Key:    aws.String(objectKey),
-	}
-
-	resp, err := client.GetObject(context.TODO(), input)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	return io.ReadAll(resp.Body)
-}
-
-func PutS3Object(cfg aws.Config, body, objectKey string) error {
-	client := s3.NewFromConfig(cfg)
-
-	_, err := client.PutObject(context.TODO(), &s3.PutObjectInput{
-		Bucket:      aws.String(EnvConfig.S3BucketName),
-		Key:         aws.String(objectKey),
-		Body:        strings.NewReader(body),
-		ACL:         types.ObjectCannedACLPrivate,
-		ContentType: aws.String("application/json"),
-	})
-	return err
-}
-
-func UniqueASINs(slice []KindleBook) []KindleBook {
-	seen := make(map[string]struct{})
-	result := []KindleBook{}
-
-	for _, s := range slice {
-		if _, exists := seen[s.ASIN]; !exists {
-			seen[s.ASIN] = struct{}{}
-			result = append(result, s)
-		}
-	}
-
-	return result
-}
-
-func ChunkedASINs(books []KindleBook, size int) [][]string {
-	var chunks [][]string
-	for i := 0; i < len(books); i += size {
-		end := i + size
-		if end > len(books) {
-			end = len(books)
-		}
-		var chunk []string
-		for _, book := range books[i:end] {
-			chunk = append(chunk, book.ASIN)
-		}
-		chunks = append(chunks, chunk)
-	}
-	return chunks
-}
-
-func SortByReleaseDate(books []KindleBook) {
-	sort.Slice(books, func(i, j int) bool {
-		if books[i].ReleaseDate.Time.After(books[j].ReleaseDate.Time) {
-			return true
-		} else if books[i].ReleaseDate.Time.Equal(books[j].ReleaseDate.Time) {
-			return books[i].Title < books[j].Title
-		}
-		return false
-	})
 }
 
 func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity.Response, error) {
@@ -412,13 +317,49 @@ func findStatusCode(err error) int {
 	return 0
 }
 
-func PrintPrettyJSON(v any) {
-	prettyJSON, err := json.MarshalIndent(v, "", "  ")
+// S3 functions
+func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
+	body, err := GetS3Object(cfg, objectKey)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
+	var ASINs []KindleBook
+	if err := json.Unmarshal(body, &ASINs); err != nil {
+		return nil, err
+	}
+
+	return ASINs, nil
+}
+
+func GetS3Object(cfg aws.Config, objectKey string) ([]byte, error) {
+	client := s3.NewFromConfig(cfg)
+
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(EnvConfig.S3BucketName),
+		Key:    aws.String(objectKey),
+	}
+
+	resp, err := client.GetObject(context.TODO(), input)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return io.ReadAll(resp.Body)
+}
+
+func PutS3Object(cfg aws.Config, body, objectKey string) error {
+	client := s3.NewFromConfig(cfg)
+
+	_, err := client.PutObject(context.TODO(), &s3.PutObjectInput{
+		Bucket:      aws.String(EnvConfig.S3BucketName),
+		Key:         aws.String(objectKey),
+		Body:        strings.NewReader(body),
+		ACL:         types.ObjectCannedACLPrivate,
+		ContentType: aws.String("application/json"),
+	})
+	return err
 }
 
 func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
@@ -430,67 +371,46 @@ func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	return PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), objectKey)
 }
 
-func AlertToSlack(err error, withMention bool) error {
-	if withMention {
-		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX> %s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
-	} else {
-		return PostToSlack(fmt.Sprintf("%s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
+// Book processing functions
+func UniqueASINs(slice []KindleBook) []KindleBook {
+	seen := make(map[string]struct{})
+	result := []KindleBook{}
+
+	for _, s := range slice {
+		if _, exists := seen[s.ASIN]; !exists {
+			seen[s.ASIN] = struct{}{}
+			result = append(result, s)
+		}
 	}
+
+	return result
 }
 
-func PostToSlack(message string, targetChannel string) error {
-	api := slack.New(EnvConfig.SlackBotToken)
-
-	_, _, err := api.PostMessage(
-		targetChannel,
-		slack.MsgOptionText(message, false),
-	)
-	return err
+func ChunkedASINs(books []KindleBook, size int) [][]string {
+	var chunks [][]string
+	for i := 0; i < len(books); i += size {
+		end := i + size
+		if end > len(books) {
+			end = len(books)
+		}
+		var chunk []string
+		for _, book := range books[i:end] {
+			chunk = append(chunk, book.ASIN)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks
 }
 
-func TootMastodon(message string) (*mastodon.Status, error) {
-	c := mastodon.NewClient(&mastodon.Config{
-		EnvConfig.MastodonServer,
-		EnvConfig.MastodonClientID,
-		EnvConfig.MastodonClientSecret,
-		EnvConfig.MastodonAccessToken,
+func SortByReleaseDate(books []KindleBook) {
+	sort.Slice(books, func(i, j int) bool {
+		if books[i].ReleaseDate.Time.After(books[j].ReleaseDate.Time) {
+			return true
+		} else if books[i].ReleaseDate.Time.Equal(books[j].ReleaseDate.Time) {
+			return books[i].Title < books[j].Title
+		}
+		return false
 	})
-
-	return c.PostStatus(context.Background(), &mastodon.Toot{Status: message, Visibility: "public"})
-}
-
-func UpdateGist(gistID, filename, markdown string) error {
-	payload := GistPayload{
-		Files: GistFiles{
-			filename: {
-				Content: markdown,
-			},
-		},
-	}
-
-	url := fmt.Sprintf("https://api.github.com/gists/%s", gistID)
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "token "+EnvConfig.GitHubToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	var client http.Client
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	return nil
 }
 
 func AppendFallbackBooks(asins []string, original []KindleBook) []KindleBook {
@@ -530,6 +450,95 @@ func MakeBook(item entity.Item, maxPrice float64) KindleBook {
 	return book
 }
 
+func SaveBooksIfChanged(cfg aws.Config, original, new []KindleBook, objectKey string) error {
+	SortByReleaseDate(new)
+	if !reflect.DeepEqual(original, new) {
+		return SaveASINs(cfg, new, objectKey)
+	}
+	return nil
+}
+
+func UpdateASINsInMultipleFiles(cfg aws.Config, newItems []KindleBook) error {
+	if len(newItems) == 0 {
+		return nil
+	}
+
+	// Update unprocessed
+	currentUnprocessed, err := FetchASINs(cfg, EnvConfig.S3UnprocessedObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
+	}
+
+	allUnprocessed := append(currentUnprocessed, newItems...)
+	SortByReleaseDate(allUnprocessed)
+
+	if err := SaveASINs(cfg, allUnprocessed, EnvConfig.S3UnprocessedObjectKey); err != nil {
+		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
+	}
+
+	// Update notified
+	currentNotified, err := FetchASINs(cfg, EnvConfig.S3NotifiedObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to fetch notified ASINs: %w", err)
+	}
+
+	allNotified := append(currentNotified, newItems...)
+	SortByReleaseDate(allNotified)
+
+	if err := SaveASINs(cfg, allNotified, EnvConfig.S3NotifiedObjectKey); err != nil {
+		return fmt.Errorf("failed to save notified ASINs: %w", err)
+	}
+
+	return nil
+}
+
+// Utility functions
+func IsKindleEdition(item entity.Item) bool {
+	return item.ItemInfo.Classifications.Binding.DisplayValue == KindleBinding
+}
+
+func CleanTitle(title string) string {
+	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕]|\s*[0-9]+.*$`).ReplaceAllString(title, ""))
+}
+
+func RecordAPIMetric(cfg aws.Config, namespace string, success bool) {
+	if success {
+		PutMetric(cfg, namespace, "APISuccess")
+	} else {
+		PutMetric(cfg, namespace, "APIFailure")
+	}
+}
+
+// Notification functions
+func AlertToSlack(err error, withMention bool) error {
+	if withMention {
+		return PostToSlack(fmt.Sprintf("<@U0MHY7ATX> %s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
+	} else {
+		return PostToSlack(fmt.Sprintf("%s\n```%v```", getFilename(), err), EnvConfig.SlackErrorChannel)
+	}
+}
+
+func PostToSlack(message string, targetChannel string) error {
+	api := slack.New(EnvConfig.SlackBotToken)
+
+	_, _, err := api.PostMessage(
+		targetChannel,
+		slack.MsgOptionText(message, false),
+	)
+	return err
+}
+
+func TootMastodon(message string) (*mastodon.Status, error) {
+	c := mastodon.NewClient(&mastodon.Config{
+		EnvConfig.MastodonServer,
+		EnvConfig.MastodonClientID,
+		EnvConfig.MastodonClientSecret,
+		EnvConfig.MastodonAccessToken,
+	})
+
+	return c.PostStatus(context.Background(), &mastodon.Toot{Status: message, Visibility: "public"})
+}
+
 func LogAndNotify(message string, sendToSlack bool) {
 	log.Println(message)
 	if sendToSlack {
@@ -542,6 +551,42 @@ func LogAndNotify(message string, sendToSlack bool) {
 	}
 }
 
+// GitHub functions
+func UpdateGist(gistID, filename, markdown string) error {
+	payload := GistPayload{
+		Files: GistFiles{
+			filename: {
+				Content: markdown,
+			},
+		},
+	}
+
+	url := fmt.Sprintf("https://api.github.com/gists/%s", gistID)
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "token "+EnvConfig.GitHubToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	var client http.Client
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
+// Metrics functions
 func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	cw := cloudwatch.NewFromConfig(cfg)
 	_, err := cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
@@ -556,4 +601,41 @@ func PutMetric(cfg aws.Config, namespace, metricName string) error {
 		},
 	})
 	return err
+}
+
+// Helper functions
+func getFilename() string {
+	const maxDepth = 50
+	pcs := make([]uintptr, maxDepth)
+	n := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+
+	var prevFrame *runtime.Frame
+
+	for {
+		frame, more := frames.Next()
+		baseFile := filepath.Base(frame.File)
+		if baseFile == "proc.go" {
+			if prevFrame != nil {
+				return filepath.Base(prevFrame.File)
+			}
+			return "unknown"
+		}
+
+		prevFrame = &frame
+		if !more {
+			break
+		}
+	}
+
+	return "unknown"
+}
+
+func PrintPrettyJSON(v any) {
+	prettyJSON, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return
+	}
+
+	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
 }

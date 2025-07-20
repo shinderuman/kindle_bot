@@ -81,7 +81,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	upcomingMap := make(map[string]utils.KindleBook)
 	items, err := searchAuthorBooks(cfg, client, author.Name)
 	if err != nil {
-		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
+		utils.RecordAPIMetric(cfg, "KindleBot/NewReleaseChecker", false)
 		return fmt.Errorf(
 			"Author %04d / %04d: %s\n%s\nError search items: %v",
 			index+1,
@@ -117,7 +117,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	}
 
 	if len(upcomingMap) > 0 {
-		if err := saveASINs(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+		if err := saveASINsFromMap(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
 			return err
 		}
 
@@ -128,7 +128,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 		for _, b := range books {
 			upcomingMap[b.ASIN] = b
 		}
-		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+		if err := saveASINsFromMap(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
 			return err
 		}
 	}
@@ -246,7 +246,7 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 	if i.ItemInfo.ProductInfo.ReleaseDate == nil {
 		return true
 	}
-	if i.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+	if !utils.IsKindleEdition(i) {
 		return true
 	}
 	for _, s := range ngWords {
@@ -301,7 +301,7 @@ func isNameMatched(author *Author, i entity.Item) bool {
 	return false
 }
 
-func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error {
+func saveASINsFromMap(cfg aws.Config, m map[string]utils.KindleBook, key string) error {
 	var list []utils.KindleBook
 	for _, book := range m {
 		list = append(list, book)

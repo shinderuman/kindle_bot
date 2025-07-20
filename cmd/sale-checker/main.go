@@ -26,83 +26,116 @@ func main() {
 func process() error {
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialize AWS config: %w", err)
 	}
 
 	client := utils.CreateClient()
 
-	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	originalBooks, upcomingBooks, err := fetchAllBooks(cfg)
 	if err != nil {
-		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to fetch books: %w", err)
 	}
 
-	upcomingBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
-	if err != nil {
-		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
+	allBooks := append(originalBooks, upcomingBooks...)
+	newBooks, hasAPIError := processASINs(cfg, client, allBooks)
+
+	if err := saveProcessedBooks(cfg, originalBooks, newBooks); err != nil {
+		return fmt.Errorf("failed to save processed books: %w", err)
 	}
 
-	newBooks := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
-
-	utils.SortByReleaseDate(newBooks)
-	if reflect.DeepEqual(originalBooks, newBooks) {
-		return nil
-	}
-
-	if err := utils.SaveASINs(cfg, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
-	}
-
-	if err := updateGist(newBooks); err != nil {
-		return fmt.Errorf("Error update gist: %s", err)
-	}
-
-	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
-		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+	if hasAPIError {
+		return fmt.Errorf("PA API errors occurred during processing")
 	}
 
 	return nil
 }
 
-func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
-	var result []utils.KindleBook
+func fetchAllBooks(cfg aws.Config) ([]utils.KindleBook, []utils.KindleBook, error) {
+	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
+	}
 
-	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
+	upcomingBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch upcoming ASINs: %w", err)
+	}
+
+	return originalBooks, upcomingBooks, nil
+}
+
+func saveProcessedBooks(cfg aws.Config, originalBooks, newBooks []utils.KindleBook) error {
+	if err := utils.SaveBooksIfChanged(cfg, originalBooks, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
+	}
+
+	// Only update gist and clear upcoming if books changed
+	utils.SortByReleaseDate(newBooks)
+	if reflect.DeepEqual(originalBooks, newBooks) {
+		return nil
+	}
+
+	if err := updateGist(newBooks); err != nil {
+		return fmt.Errorf("failed to update gist: %w", err)
+	}
+
+	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+		return fmt.Errorf("failed to clear upcoming ASINs: %w", err)
+	}
+
+	return nil
+}
+
+func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) ([]utils.KindleBook, bool) {
+	var result []utils.KindleBook
+	var hasAPIError bool
+
+	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), utils.DefaultChunkSize) {
 		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
-			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			utils.RecordAPIMetric(cfg, "KindleBot/SaleChecker", false)
+			hasAPIError = true
 			continue
 		}
 
-		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
-		for _, item := range resp.ItemsResult.Items {
-			log.Println(item.ItemInfo.Title.DisplayValue)
+		utils.RecordAPIMetric(cfg, "KindleBot/SaleChecker", true)
+		processedBooks := processItemsForSale(resp.ItemsResult.Items, original)
+		result = append(result, processedBooks...)
+	}
 
-			if !isKindle(item) {
-				utils.AlertToSlack(fmt.Errorf(
-					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
-					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
-				), false)
-				continue
-			}
+	return result, hasAPIError
+}
 
-			book := utils.GetBook(item.ASIN, original)
-			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
+func processItemsForSale(items []entity.Item, original []utils.KindleBook) []utils.KindleBook {
+	var result []utils.KindleBook
 
-			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
-				utils.LogAndNotify(formatSlackMessage(item, conditions), true)
-			} else {
-				result = append(result, utils.MakeBook(item, maxPrice))
-			}
+	for _, item := range items {
+		log.Printf("Processing: %s", item.ItemInfo.Title.DisplayValue)
+
+		if !utils.IsKindleEdition(item) {
+			alertNonKindleItem(item)
+			continue
+		}
+
+		book := utils.GetBook(item.ASIN, original)
+		maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
+
+		if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
+			utils.LogAndNotify(formatSlackMessage(item, conditions), true)
+		} else {
+			result = append(result, utils.MakeBook(item, maxPrice))
 		}
 	}
 
 	return result
 }
 
-func isKindle(item entity.Item) bool {
-	return item.ItemInfo.Classifications.Binding.DisplayValue == "Kindle版"
+func alertNonKindleItem(item entity.Item) {
+	utils.AlertToSlack(fmt.Errorf(
+		"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+		item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
+	), false)
 }
 
 func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
@@ -110,13 +143,13 @@ func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
 	points := (*item.Offers.Listings)[0].LoyaltyPoints.Points
 
 	var conditions []string
-	if diff := maxPrice - amount; diff >= 151 {
+	if diff := maxPrice - amount; diff >= utils.MinPriceDiff {
 		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", diff))
 	}
-	if points >= 151 {
+	if points >= utils.MinPoints {
 		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", points))
 	}
-	if percent := float64(points) / amount * 100; percent >= 20 {
+	if percent := float64(points) / amount * 100; percent >= utils.MinPointPercent {
 		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", percent))
 	}
 
