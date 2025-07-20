@@ -3,3 +3,5 @@ bootstrap
 lambda.zip
 config.json
 markdown
+cmd/young-gangan/*
+cmd/paapi-test-client/*
