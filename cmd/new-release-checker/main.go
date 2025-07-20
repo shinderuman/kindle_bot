@@ -19,12 +19,24 @@ import (
 )
 
 const (
-	secondsPerCycle = 1 * 24 * 60 * 60
+	// Time constants
+	secondsPerCycle = 24 * 60 * 60 // 1 day in seconds
 
+	// Gist configuration
 	gistID       = "d5116b8fdce5cdd1995c2a7a3be325f4"
 	gistFilename = "新刊チェック中の作者.md"
 
+	// API configuration
 	paapiMaxRetryCount = 3
+
+	// Error messages
+	errFetchNotifiedASINs    = "error fetching notified ASINs"
+	errFetchAuthors          = "failed to fetch authors"
+	errNoAuthorsAvailable    = "no authors available"
+	errFetchPrevIndex        = "failed to fetch prev_index"
+	errFetchAuthorsFile      = "error fetching authors file"
+	errFetchExcludedKeywords = "error fetching excluded title keywords file"
+	errSearchItems           = "error search items"
 )
 
 type Author struct {
@@ -149,7 +161,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleBook, error) {
 	books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching notified ASINs: %v", err)
+		return nil, fmt.Errorf("%s: %w", errFetchNotifiedASINs, err)
 	}
 	m := make(map[string]utils.KindleBook)
 	for _, b := range books {
@@ -163,17 +175,17 @@ func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleB
 func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 	authors, err := fetchAuthors(cfg)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
+		return nil, nil, 0, fmt.Errorf("%s: %w", errFetchAuthors, err)
 	}
 	if len(authors) == 0 {
-		return nil, nil, 0, fmt.Errorf("no authors available")
+		return nil, nil, 0, fmt.Errorf(errNoAuthorsAvailable)
 	}
 
 	index := getIndexByTime(len(authors))
 
 	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexObjectKey)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return nil, nil, 0, fmt.Errorf("%s: %w", errFetchPrevIndex, err)
 	}
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
@@ -190,7 +202,7 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 func fetchAuthors(cfg aws.Config) ([]Author, error) {
 	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching authors file: %v", err)
+		return nil, fmt.Errorf("%s: %w", errFetchAuthorsFile, err)
 	}
 	var authors []Author
 	if err := json.Unmarshal(body, &authors); err != nil {
@@ -210,7 +222,7 @@ func getIndexByTime(authorCount int) int {
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching excluded title keywords file: %v", err)
+		return nil, fmt.Errorf("%s: %w", errFetchExcludedKeywords, err)
 	}
 	var keywords []string
 	if err := json.Unmarshal(body, &keywords); err != nil {
@@ -229,7 +241,7 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 
 	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("Error search items: %v", err)
+		return nil, fmt.Errorf("%s: %w", errSearchItems, err)
 	}
 
 	if res.SearchResult == nil {

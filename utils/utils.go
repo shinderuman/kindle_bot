@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -36,6 +35,15 @@ import (
 	"github.com/slack-go/slack"
 )
 
+const (
+	// Error messages
+	errConfigLoad        = "Error loading configuration"
+	errAWSConfigLoad     = "failed to load AWS config"
+	errPAAPIRequest      = "PA API request failed"
+	errJSONDecode        = "JSON decode error"
+	errMaxRetriesReached = "Max retries reached"
+)
+
 var (
 	EnvConfig     Config
 	configInitErr error
@@ -44,7 +52,7 @@ var (
 
 func Run(process func() error) {
 	if err := InitConfig(); err != nil {
-		log.Println("Error loading configuration:", err)
+		log.Printf("%s: %v", errConfigLoad, err)
 		return
 	}
 
@@ -136,7 +144,7 @@ func InitConfig() error {
 			}
 		})
 	} else {
-		data, err := ioutil.ReadFile("config.json")
+		data, err := os.ReadFile("config.json")
 		if err != nil {
 			return err
 		}
@@ -196,7 +204,7 @@ func InitAWSConfig() (aws.Config, error) {
 		config.WithRegion(EnvConfig.S3Region),
 	)
 	if err != nil {
-		return aws.Config{}, fmt.Errorf("failed to load AWS config: %v", err)
+		return aws.Config{}, fmt.Errorf("%s: %w", errAWSConfigLoad, err)
 	}
 	return cfg, nil
 }
@@ -305,12 +313,12 @@ func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity
 
 	body, err := requestWithBackoff(cfg, client, q, 5)
 	if err != nil {
-		return nil, fmt.Errorf("PA API request failed: %w", err)
+		return nil, fmt.Errorf("%s: %w", errPAAPIRequest, err)
 	}
 
 	res, err := entity.DecodeResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("JSON decode error: %w", err)
+		return nil, fmt.Errorf("%s: %w", errJSONDecode, err)
 	}
 
 	return res, nil
@@ -336,12 +344,12 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
 	body, err := requestWithBackoff(cfg, client, q, maxRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("PA API request failed: %w", err)
+		return nil, fmt.Errorf("%s: %w", errPAAPIRequest, err)
 	}
 
 	res, err := entity.DecodeResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("JSON decode error: %w", err)
+		return nil, fmt.Errorf("%s: %w", errJSONDecode, err)
 	}
 
 	return res, nil
@@ -377,8 +385,8 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		return nil, err
 	}
 
-	log.Println("Max retries reached")
-	return nil, fmt.Errorf("Max retries reached")
+	log.Println(errMaxRetriesReached)
+	return nil, fmt.Errorf(errMaxRetriesReached)
 }
 
 func isRetryableError(err error) bool {
