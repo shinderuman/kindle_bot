@@ -12,53 +12,58 @@ import (
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
-	"kindle_bot/utils"
+	"kindle_bot/internal/config"
+	"kindle_bot/internal/notification"
+	"kindle_bot/internal/paapi"
+	"kindle_bot/internal/runner"
+	"kindle_bot/internal/storage"
+	"kindle_bot/pkg/models"
 )
 
 func main() {
-	utils.Run(process)
+	runner.Run(process)
 }
 
 func process() error {
-	cfg, err := utils.InitAWSConfig()
+	cfg, err := storage.InitAWSConfig()
 	if err != nil {
 		return err
 	}
 
-	client := utils.CreateClient()
-	originalPaperBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
+	client := paapi.CreateClient()
+	originalPaperBooks, err := storage.FetchASINs(cfg, config.EnvConfig.S3PaperBooksObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching paper books ASINs: %v", err)
 	}
 
-	var newUnprocessed, newPaperBooks []utils.KindleBook
-	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10) {
-		items, err := utils.GetItems(cfg, client, chunk)
+	var newUnprocessed, newPaperBooks []models.KindleBook
+	for _, chunk := range storage.ChunkedASINs(storage.UniqueASINs(originalPaperBooks), 10) {
+		items, err := paapi.GetItems(cfg, client, chunk)
 		if err != nil {
-			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
-			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			newPaperBooks = append(newPaperBooks, storage.AppendFallbackBooks(chunk, originalPaperBooks)...)
+			notification.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
+			// notification.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
-		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+		notification.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
 		for _, paper := range items.ItemsResult.Items {
 			log.Println(paper.ItemInfo.Title.DisplayValue)
 
 			kindleItem, err := searchKindleEdition(cfg, client, paper)
 			if err != nil {
-				utils.AlertToSlack(err, false)
-				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
-				utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
+				notification.AlertToSlack(err, false)
+				newPaperBooks = append(newPaperBooks, paapi.MakeBook(paper, 0))
+				notification.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
 				continue
 			}
-			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+			notification.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
 			if kindleItem != nil {
-				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
-				newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
+				notification.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
+				newUnprocessed = append(newUnprocessed, paapi.MakeBook(*kindleItem, 0))
 			} else {
-				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
+				newPaperBooks = append(newPaperBooks, paapi.MakeBook(paper, 0))
 			}
 		}
 	}
@@ -67,9 +72,9 @@ func process() error {
 		return err
 	}
 
-	utils.SortByReleaseDate(newPaperBooks)
+	storage.SortByReleaseDate(newPaperBooks)
 	if !reflect.DeepEqual(originalPaperBooks, newPaperBooks) {
-		if err := utils.SaveASINs(cfg, newPaperBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+		if err := storage.SaveASINs(cfg, newPaperBooks, config.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("Error saving paper books ASINs: %v", err)
 		}
 	}
@@ -78,14 +83,14 @@ func process() error {
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item) (*entity.Item, error) {
-	q := utils.CreateSearchQuery(
+	q := paapi.CreateSearchQuery(
 		client,
 		query.Title,
 		cleanTitle(paper.ItemInfo.Title.DisplayValue),
 		(*paper.Offers.Listings)[0].Price.Amount+20000,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, 5)
+	res, err := paapi.SearchItems(cfg, client, q, 5)
 	if err != nil {
 		return nil, fmt.Errorf("Error searching items: %v", err)
 	}
@@ -102,32 +107,32 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item
 	return nil, nil
 }
 
-func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
+func updateASINs(cfg aws.Config, newItems []models.KindleBook) error {
 	if len(newItems) == 0 {
 		return nil
 	}
 
-	currentUnprocessed, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	currentUnprocessed, err := storage.FetchASINs(cfg, config.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
 	allUnprocessed := append(currentUnprocessed, newItems...)
-	utils.SortByReleaseDate(allUnprocessed)
+	storage.SortByReleaseDate(allUnprocessed)
 
-	if err := utils.SaveASINs(cfg, allUnprocessed, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+	if err := storage.SaveASINs(cfg, allUnprocessed, config.EnvConfig.S3UnprocessedObjectKey); err != nil {
 		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 	}
 
-	currentNotified, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
+	currentNotified, err := storage.FetchASINs(cfg, config.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching notified ASINs: %v", err)
 	}
 
 	allNotified := append(currentNotified, newItems...)
-	utils.SortByReleaseDate(allNotified)
+	storage.SortByReleaseDate(allNotified)
 
-	if err := utils.SaveASINs(cfg, allNotified, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+	if err := storage.SaveASINs(cfg, allNotified, config.EnvConfig.S3NotifiedObjectKey); err != nil {
 		return fmt.Errorf("Error saving notified ASINs: %v", err)
 	}
 	return nil

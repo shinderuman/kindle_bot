@@ -15,7 +15,12 @@ import (
 	"github.com/goark/pa-api/entity"
 	"github.com/goark/pa-api/query"
 
-	"kindle_bot/utils"
+	"kindle_bot/internal/config"
+	"kindle_bot/internal/notification"
+	"kindle_bot/internal/paapi"
+	"kindle_bot/internal/runner"
+	"kindle_bot/internal/storage"
+	"kindle_bot/pkg/models"
 )
 
 const (
@@ -34,11 +39,11 @@ type Author struct {
 }
 
 func main() {
-	utils.Run(process)
+	runner.Run(process)
 }
 
 func process() error {
-	cfg, err := utils.InitAWSConfig()
+	cfg, err := storage.InitAWSConfig()
 	if err != nil {
 		return err
 	}
@@ -51,7 +56,7 @@ func process() error {
 		return nil
 	}
 
-	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
+	if err = storage.PutS3Object(cfg, strconv.Itoa(index), config.EnvConfig.S3PrevIndexObjectKey); err != nil {
 		return err
 	}
 
@@ -59,14 +64,14 @@ func process() error {
 		return err
 	}
 
-	utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotSuccess")
+	notification.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotSuccess")
 
 	return nil
 }
 
 func processCore(cfg aws.Config, author *Author, authors []Author, index int) error {
 	start := time.Now()
-	client := utils.CreateClient()
+	client := paapi.CreateClient()
 
 	notifiedMap, err := fetchNotifiedASINs(cfg, start)
 	if err != nil {
@@ -78,10 +83,10 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 		return err
 	}
 
-	upcomingMap := make(map[string]utils.KindleBook)
+	upcomingMap := make(map[string]models.KindleBook)
 	items, err := searchAuthorBooks(cfg, client, author.Name)
 	if err != nil {
-		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
+		notification.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
 		return fmt.Errorf(
 			"Author %04d / %04d: %s\n%s\nError search items: %v",
 			index+1,
@@ -93,7 +98,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	}
 
 	if len(items) == 0 {
-		utils.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL), false)
+		notification.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL), false)
 		return nil
 	}
 
@@ -103,7 +108,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 			continue
 		}
 
-		utils.LogAndNotify(fmt.Sprintf("📚 新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
+		notification.LogAndNotify(fmt.Sprintf("📚 新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
 			item.ItemInfo.Title.DisplayValue,
 			author.Name,
 			item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
@@ -111,24 +116,24 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 			item.DetailPageURL,
 		), true)
 
-		b := utils.MakeBook(item, 0)
+		b := paapi.MakeBook(item, 0)
 		notifiedMap[item.ASIN] = b
 		upcomingMap[item.ASIN] = b
 	}
 
 	if len(upcomingMap) > 0 {
-		if err := saveASINs(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
+		if err := saveASINs(cfg, notifiedMap, config.EnvConfig.S3NotifiedObjectKey); err != nil {
 			return err
 		}
 
-		books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+		books, err := storage.FetchASINs(cfg, config.EnvConfig.S3UpcomingObjectKey)
 		if err != nil {
 			return err
 		}
 		for _, b := range books {
 			upcomingMap[b.ASIN] = b
 		}
-		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+		if err := saveASINs(cfg, upcomingMap, config.EnvConfig.S3UpcomingObjectKey); err != nil {
 			return err
 		}
 	}
@@ -146,12 +151,12 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	return nil
 }
 
-func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleBook, error) {
-	books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
+func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]models.KindleBook, error) {
+	books, err := storage.FetchASINs(cfg, config.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
 		return nil, fmt.Errorf("Error fetching notified ASINs: %v", err)
 	}
-	m := make(map[string]utils.KindleBook)
+	m := make(map[string]models.KindleBook)
 	for _, b := range books {
 		if b.ReleaseDate.After(now) {
 			m[b.ASIN] = b
@@ -171,7 +176,7 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 
 	index := getIndexByTime(len(authors))
 
-	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexObjectKey)
+	prevIndexBytes, err := storage.GetS3Object(cfg, config.EnvConfig.S3PrevIndexObjectKey)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
@@ -188,7 +193,7 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 }
 
 func fetchAuthors(cfg aws.Config) ([]Author, error) {
-	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
+	body, err := storage.GetS3Object(cfg, config.EnvConfig.S3AuthorsObjectKey)
 	if err != nil {
 		return nil, fmt.Errorf("Error fetching authors file: %v", err)
 	}
@@ -208,7 +213,7 @@ func getIndexByTime(authorCount int) int {
 }
 
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
-	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
+	body, err := storage.GetS3Object(cfg, config.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
 	if err != nil {
 		return nil, fmt.Errorf("Error fetching excluded title keywords file: %v", err)
 	}
@@ -220,14 +225,14 @@ func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 }
 
 func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) ([]entity.Item, error) {
-	q := utils.CreateSearchQuery(
+	q := paapi.CreateSearchQuery(
 		client,
 		query.Author,
 		authorName,
 		0,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
+	res, err := paapi.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("Error search items: %v", err)
 	}
@@ -239,7 +244,7 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 	return res.SearchResult.Items, nil
 }
 
-func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.KindleBook, ngWords []string, now time.Time) bool {
+func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]models.KindleBook, ngWords []string, now time.Time) bool {
 	if _, exists := notifiedMap[i.ASIN]; exists {
 		return true
 	}
@@ -301,13 +306,13 @@ func isNameMatched(author *Author, i entity.Item) bool {
 	return false
 }
 
-func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error {
-	var list []utils.KindleBook
+func saveASINs(cfg aws.Config, m map[string]models.KindleBook, key string) error {
+	var list []models.KindleBook
 	for _, book := range m {
 		list = append(list, book)
 	}
-	utils.SortByReleaseDate(list)
-	return utils.SaveASINs(cfg, list, key)
+	storage.SortByReleaseDate(list)
+	return storage.SaveASINs(cfg, list, key)
 }
 
 func SortUniqueAuthors(authors []Author) []Author {
@@ -340,7 +345,7 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 		return err
 	}
 
-	return utils.PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), utils.EnvConfig.S3AuthorsObjectKey)
+	return storage.PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), config.EnvConfig.S3AuthorsObjectKey)
 }
 
 func updateGist(authors []Author) error {
@@ -351,5 +356,5 @@ func updateGist(authors []Author) error {
 
 	markdown := fmt.Sprintf("## 合計 %d人(最新の単行本発売日降順)\n%s", len(authors), strings.Join(lines, "\n"))
 
-	return utils.UpdateGist(gistID, gistFilename, markdown)
+	return notification.UpdateGist(gistID, gistFilename, markdown)
 }

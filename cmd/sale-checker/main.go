@@ -11,7 +11,12 @@ import (
 	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
-	"kindle_bot/utils"
+	"kindle_bot/internal/config"
+	"kindle_bot/internal/notification"
+	"kindle_bot/internal/paapi"
+	"kindle_bot/internal/runner"
+	"kindle_bot/internal/storage"
+	"kindle_bot/pkg/models"
 )
 
 const (
@@ -20,35 +25,35 @@ const (
 )
 
 func main() {
-	utils.Run(process)
+	runner.Run(process)
 }
 
 func process() error {
-	cfg, err := utils.InitAWSConfig()
+	cfg, err := storage.InitAWSConfig()
 	if err != nil {
 		return err
 	}
 
-	client := utils.CreateClient()
+	client := paapi.CreateClient()
 
-	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	originalBooks, err := storage.FetchASINs(cfg, config.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
 	}
 
-	upcomingBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+	upcomingBooks, err := storage.FetchASINs(cfg, config.EnvConfig.S3UpcomingObjectKey)
 	if err != nil {
 		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
 	}
 
 	newBooks := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
 
-	utils.SortByReleaseDate(newBooks)
+	storage.SortByReleaseDate(newBooks)
 	if reflect.DeepEqual(originalBooks, newBooks) {
 		return nil
 	}
 
-	if err := utils.SaveASINs(cfg, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+	if err := storage.SaveASINs(cfg, newBooks, config.EnvConfig.S3UnprocessedObjectKey); err != nil {
 		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 	}
 
@@ -56,44 +61,44 @@ func process() error {
 		return fmt.Errorf("Error update gist: %s", err)
 	}
 
-	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+	if err := storage.SaveASINs(cfg, []models.KindleBook{}, config.EnvConfig.S3UpcomingObjectKey); err != nil {
 		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
 	}
 
 	return nil
 }
 
-func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
-	var result []utils.KindleBook
+func processASINs(cfg aws.Config, client paapi5.Client, original []models.KindleBook) []models.KindleBook {
+	var result []models.KindleBook
 
-	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
-		resp, err := utils.GetItems(cfg, client, chunk)
+	for _, chunk := range storage.ChunkedASINs(storage.UniqueASINs(original), 10) {
+		resp, err := paapi.GetItems(cfg, client, chunk)
 		if err != nil {
-			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
-			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			result = append(result, storage.AppendFallbackBooks(chunk, original)...)
+			notification.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
+			// notification.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
 
-		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
+		notification.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
 			log.Println(item.ItemInfo.Title.DisplayValue)
 
 			if !isKindle(item) {
-				utils.AlertToSlack(fmt.Errorf(
+				notification.AlertToSlack(fmt.Errorf(
 					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
 					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
 				), false)
 				continue
 			}
 
-			book := utils.GetBook(item.ASIN, original)
+			book := storage.GetBook(item.ASIN, original)
 			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
 			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
-				utils.LogAndNotify(formatSlackMessage(item, conditions), true)
+				notification.LogAndNotify(formatSlackMessage(item, conditions), true)
 			} else {
-				result = append(result, utils.MakeBook(item, maxPrice))
+				result = append(result, paapi.MakeBook(item, maxPrice))
 			}
 		}
 	}
@@ -132,7 +137,7 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 	)
 }
 
-func updateGist(books []utils.KindleBook) error {
+func updateGist(books []models.KindleBook) error {
 	var lines []string
 	for _, book := range books {
 		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", book.ReleaseDate.Format("2006-01-02"), book.Title, book.URL))
@@ -140,5 +145,5 @@ func updateGist(books []utils.KindleBook) error {
 
 	markdown := fmt.Sprintf("## 合計 %d冊\n%s", len(books), strings.Join(lines, "\n"))
 
-	return utils.UpdateGist(gistID, gistFilename, markdown)
+	return notification.UpdateGist(gistID, gistFilename, markdown)
 }
