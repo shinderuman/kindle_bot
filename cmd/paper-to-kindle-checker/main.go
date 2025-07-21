@@ -32,7 +32,13 @@ func process() error {
 	}
 
 	var newUnprocessed, newPaperBooks []utils.KindleBook
-	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10) {
+	var successfulRequests int
+	var totalRequests int
+
+	chunks := utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10)
+	totalRequests = len(chunks)
+
+	for _, chunk := range chunks {
 		items, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
@@ -40,6 +46,7 @@ func process() error {
 			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
 			continue
 		}
+		successfulRequests++
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
 		for _, paper := range items.ItemsResult.Items {
@@ -61,6 +68,11 @@ func process() error {
 				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
 			}
 		}
+	}
+
+	// If all PA API requests failed, return error
+	if successfulRequests == 0 && totalRequests > 0 {
+		return fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, totalRequests)
 	}
 
 	if err := updateASINs(cfg, newUnprocessed); err != nil {

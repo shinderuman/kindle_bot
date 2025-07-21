@@ -41,7 +41,10 @@ func process() error {
 		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
 	}
 
-	newBooks := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
+	newBooks, err := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
+	if err != nil {
+		return fmt.Errorf("PA API processing failed: %v", err)
+	}
 
 	utils.SortByReleaseDate(newBooks)
 	if reflect.DeepEqual(originalBooks, newBooks) {
@@ -63,10 +66,15 @@ func process() error {
 	return nil
 }
 
-func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) []utils.KindleBook {
+func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) ([]utils.KindleBook, error) {
 	var result []utils.KindleBook
+	var successfulRequests int
+	var totalRequests int
 
-	for _, chunk := range utils.ChunkedASINs(utils.UniqueASINs(original), 10) {
+	chunks := utils.ChunkedASINs(utils.UniqueASINs(original), 10)
+	totalRequests = len(chunks)
+
+	for _, chunk := range chunks {
 		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
@@ -75,6 +83,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 			continue
 		}
 
+		successfulRequests++
 		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
 			log.Println(item.ItemInfo.Title.DisplayValue)
@@ -98,7 +107,12 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		}
 	}
 
-	return result
+	// If all PA API requests failed, return error
+	if successfulRequests == 0 && totalRequests > 0 {
+		return result, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, totalRequests)
+	}
+
+	return result, nil
 }
 
 func isKindle(item entity.Item) bool {
