@@ -76,7 +76,7 @@ func getFilename() string {
 		baseFile := filepath.Base(frame.File)
 		if baseFile == "proc.go" {
 			if prevFrame != nil {
-				return filepath.Base(prevFrame.File)
+				return prevFrame.File
 			}
 			return "unknown"
 		}
