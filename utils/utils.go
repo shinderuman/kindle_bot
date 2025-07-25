@@ -353,12 +353,15 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		body, err := client.Request(q)
 		PutMetric(cfg, "KindleBot/Usage", "PAAPIRequest")
 		if err == nil {
+			PutMetric(cfg, "KindleBot/Usage", "PAAPISuccess")
 			time.Sleep(time.Second * 2)
 			return body, nil
 		}
 
+		PutMetric(cfg, "KindleBot/Usage", "PAAPIFailure")
 		if isRetryableError(err) {
 			if i == maxRetryCount-1 {
+				PutMetric(cfg, "KindleBot/Usage", "PAAPIMaxRetriesReached")
 				break
 			}
 
