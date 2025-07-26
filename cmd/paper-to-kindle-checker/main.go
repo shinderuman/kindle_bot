@@ -32,7 +32,7 @@ func process() error {
 	client := utils.CreateClient()
 	originalPaperBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching paper books ASINs: %v", err)
+		return fmt.Errorf("failed to fetch paper books: %w", err)
 	}
 
 	var newUnprocessed, newPaperBooks []utils.KindleBook
@@ -86,7 +86,7 @@ func process() error {
 	utils.SortByReleaseDate(newPaperBooks)
 	if !reflect.DeepEqual(originalPaperBooks, newPaperBooks) {
 		if err := utils.SaveASINs(cfg, newPaperBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
-			return fmt.Errorf("Error saving paper books ASINs: %v", err)
+			return fmt.Errorf("failed to save paper books: %w", err)
 		}
 	}
 
@@ -103,7 +103,7 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item
 
 	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("Error searching items: %v", err)
+		return nil, err
 	}
 
 	if res.SearchResult == nil {
@@ -125,26 +125,26 @@ func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
 
 	currentUnprocessed, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
 	}
 
 	allUnprocessed := append(currentUnprocessed, newItems...)
 	utils.SortByReleaseDate(allUnprocessed)
 
 	if err := utils.SaveASINs(cfg, allUnprocessed, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
 
 	currentNotified, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching notified ASINs: %v", err)
+		return fmt.Errorf("failed to fetch notified ASINs: %w", err)
 	}
 
 	allNotified := append(currentNotified, newItems...)
 	utils.SortByReleaseDate(allNotified)
 
 	if err := utils.SaveASINs(cfg, allNotified, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
-		return fmt.Errorf("Error saving notified ASINs: %v", err)
+		return fmt.Errorf("failed to save notified ASINs: %w", err)
 	}
 	return nil
 }

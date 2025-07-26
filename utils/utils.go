@@ -309,7 +309,7 @@ func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity
 
 	body, err := requestWithBackoff(cfg, client, q, GetItemsPAAPIRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("PA API request failed: %w", err)
+		return nil, err
 	}
 
 	res, err := entity.DecodeResponse(body)
@@ -340,7 +340,7 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
 	body, err := requestWithBackoff(cfg, client, q, maxRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("PA API request failed: %w", err)
+		return nil, err
 	}
 
 	res, err := entity.DecodeResponse(body)

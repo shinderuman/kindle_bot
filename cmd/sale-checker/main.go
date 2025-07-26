@@ -33,12 +33,12 @@ func process() error {
 
 	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
 	}
 
 	upcomingBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
 	if err != nil {
-		return fmt.Errorf("Error fetching upcoming ASINs: %v", err)
+		return fmt.Errorf("failed to fetch upcoming ASINs: %w", err)
 	}
 
 	newBooks, err := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
@@ -52,7 +52,7 @@ func process() error {
 	}
 
 	if err := utils.SaveASINs(cfg, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
 
 	if err := updateGist(newBooks); err != nil {
@@ -60,7 +60,7 @@ func process() error {
 	}
 
 	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
-		return fmt.Errorf("Error saving unprocessed ASINs: %v", err)
+		return fmt.Errorf("failed to clear upcoming ASINs: %w", err)
 	}
 
 	return nil

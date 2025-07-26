@@ -83,7 +83,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
 		return fmt.Errorf(
-			"Author %04d / %04d: %s\n%s\nError search items: %v",
+			"Author %04d / %04d: %s\n%s\n%v",
 			index+1,
 			len(authors),
 			author.Name,
@@ -149,7 +149,7 @@ func processCore(cfg aws.Config, author *Author, authors []Author, index int) er
 func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleBook, error) {
 	books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching notified ASINs: %v", err)
+		return nil, fmt.Errorf("failed to fetch notified ASINs: %w", err)
 	}
 	m := make(map[string]utils.KindleBook)
 	for _, b := range books {
@@ -190,7 +190,7 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 func fetchAuthors(cfg aws.Config) ([]Author, error) {
 	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching authors file: %v", err)
+		return nil, fmt.Errorf("failed to fetch authors: %w", err)
 	}
 	var authors []Author
 	if err := json.Unmarshal(body, &authors); err != nil {
@@ -221,7 +221,7 @@ func getIndexByTime(authorCount int) int {
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
 	if err != nil {
-		return nil, fmt.Errorf("Error fetching excluded title keywords file: %v", err)
+		return nil, fmt.Errorf("failed to fetch excluded keywords: %w", err)
 	}
 	var keywords []string
 	if err := json.Unmarshal(body, &keywords); err != nil {
@@ -240,7 +240,7 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 
 	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
-		return nil, fmt.Errorf("Error search items: %v", err)
+		return nil, err
 	}
 
 	if res.SearchResult == nil {
