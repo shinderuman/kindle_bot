@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,12 +20,11 @@ import (
 )
 
 const (
-	secondsPerCycle = 1 * 24 * 60 * 60
-
 	gistID       = "d5116b8fdce5cdd1995c2a7a3be325f4"
 	gistFilename = "新刊チェック中の作者.md"
 
 	paapiMaxRetryCount = 3
+	defaultCycleDays   = 7
 )
 
 type Author struct {
@@ -203,6 +203,17 @@ func getIndexByTime(authorCount int) int {
 	if authorCount <= 0 {
 		return 0
 	}
+
+	cycleDays := defaultCycleDays
+	if envDays := os.Getenv("NEW_RELEASE_CYCLE_DAYS"); envDays != "" {
+		if days, err := strconv.Atoi(envDays); err == nil && days > 0 {
+			cycleDays = days
+		}
+	}
+
+	log.Printf("New release checker cycle: %d days", cycleDays)
+
+	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
 	sec := time.Now().Unix() % secondsPerCycle
 	return int(sec * int64(authorCount) / secondsPerCycle)
 }
