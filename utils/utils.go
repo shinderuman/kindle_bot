@@ -36,6 +36,10 @@ import (
 	"github.com/slack-go/slack"
 )
 
+const (
+	GetItemsPAAPIRetryCount = 3
+)
+
 var (
 	EnvConfig     Config
 	configInitErr error
@@ -303,7 +307,7 @@ func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(cfg, client, q, 5)
+	body, err := requestWithBackoff(cfg, client, q, GetItemsPAAPIRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("PA API request failed: %w", err)
 	}
@@ -362,7 +366,7 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		if isRetryableError(err) {
 			if i == maxRetryCount-1 {
 				PutMetric(cfg, "KindleBot/Usage", "PAAPIMaxRetriesReached")
-				break
+				return nil, fmt.Errorf("max retries reached, last error: %w", err)
 			}
 
 			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * 2
@@ -372,7 +376,7 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 				waitTime = maxWait
 			}
 
-			log.Printf("Rate limit hit. Retrying in %v...\n", waitTime)
+			log.Printf("Rate limit hit. Retrying in %v... (error: %v)", waitTime, err)
 			time.Sleep(waitTime)
 			continue
 		}
@@ -380,8 +384,7 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		return nil, err
 	}
 
-	log.Println("Max retries reached")
-	return nil, fmt.Errorf("Max retries reached")
+	return nil, fmt.Errorf("unexpected: loop completed without return")
 }
 
 func isRetryableError(err error) bool {

@@ -15,6 +15,10 @@ import (
 	"kindle_bot/utils"
 )
 
+const (
+	paapiMaxRetryCount = 5
+)
+
 func main() {
 	utils.Run(process)
 }
@@ -97,7 +101,7 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item
 		(*paper.Offers.Listings)[0].Price.Amount+20000,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, 5)
+	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
 	if err != nil {
 		return nil, fmt.Errorf("Error searching items: %v", err)
 	}
