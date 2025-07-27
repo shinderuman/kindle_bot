@@ -56,7 +56,7 @@ func process() error {
 	}
 
 	if err := updateGist(newBooks); err != nil {
-		return fmt.Errorf("Error update gist: %s", err)
+		return fmt.Errorf("error update gist: %s", err)
 	}
 
 	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
@@ -79,7 +79,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		if err != nil {
 			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
 			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
+			// utils.AlertToSlack(fmt.Errorf("error fetching item details: %v", err), false)
 			continue
 		}
 

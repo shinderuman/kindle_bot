@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -141,7 +140,7 @@ func InitConfig() error {
 			}
 		})
 	} else {
-		data, err := ioutil.ReadFile("config.json")
+		data, err := os.ReadFile("config.json")
 		if err != nil {
 			return err
 		}
@@ -315,7 +314,7 @@ func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity
 
 	res, err := entity.DecodeResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("JSON decode error: %w", err)
+		return nil, fmt.Errorf("json decode error: %w", err)
 	}
 
 	return res, nil
@@ -346,7 +345,7 @@ func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, max
 
 	res, err := entity.DecodeResponse(body)
 	if err != nil {
-		return nil, fmt.Errorf("JSON decode error: %w", err)
+		return nil, fmt.Errorf("json decode error: %w", err)
 	}
 
 	return res, nil
@@ -457,10 +456,10 @@ func PostToSlack(message string, targetChannel string) error {
 
 func TootMastodon(message string) (*mastodon.Status, error) {
 	c := mastodon.NewClient(&mastodon.Config{
-		EnvConfig.MastodonServer,
-		EnvConfig.MastodonClientID,
-		EnvConfig.MastodonClientSecret,
-		EnvConfig.MastodonAccessToken,
+		Server:       EnvConfig.MastodonServer,
+		ClientID:     EnvConfig.MastodonClientID,
+		ClientSecret: EnvConfig.MastodonClientSecret,
+		AccessToken:  EnvConfig.MastodonAccessToken,
 	})
 
 	return c.PostStatus(context.Background(), &mastodon.Toot{Status: message, Visibility: "public"})
@@ -541,11 +540,11 @@ func LogAndNotify(message string, sendToSlack bool) {
 	log.Println(message)
 	if sendToSlack {
 		if _, err := TootMastodon(message); err != nil {
-			AlertToSlack(fmt.Errorf("Failed to post to Mastodon: %v", err), false)
+			AlertToSlack(fmt.Errorf("failed to post to Mastodon: %v", err), false)
 		}
 	}
 	if err := PostToSlack(message, EnvConfig.SlackNoticeChannel); err != nil {
-		AlertToSlack(fmt.Errorf("Failed to post to Slack: %v", err), false)
+		AlertToSlack(fmt.Errorf("failed to post to Slack: %v", err), false)
 	}
 }
 
