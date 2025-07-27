@@ -47,11 +47,11 @@ func process() error {
 
 	initEnvironmentVariables()
 
-	author, authors, index, err := getAuthorToProcess(cfg)
+	authors, index, err := getAuthorToProcess(cfg)
 	if err != nil {
 		return err
 	}
-	if author == nil {
+	if authors == nil {
 		return nil
 	}
 
@@ -59,7 +59,7 @@ func process() error {
 		return err
 	}
 
-	if err = processCore(cfg, author, authors, index); err != nil {
+	if err = processCore(cfg, authors, index); err != nil {
 		return err
 	}
 
@@ -82,31 +82,31 @@ func initEnvironmentVariables() {
 	}
 }
 
-func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
+func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
 	authors, err := fetchAuthors(cfg)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
+		return nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
 	}
 	if len(authors) == 0 {
-		return nil, nil, 0, fmt.Errorf("no authors available")
+		return nil, 0, fmt.Errorf("no authors available")
 	}
 
 	index := utils.GetIndexByTime(len(authors), cycleDays)
 
 	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
 		log.Println("Not my slot, skipping")
-		return nil, authors, index, nil
+		return nil, 0, nil
 	}
 
 	author := &authors[index]
 	log.Printf("Author %04d / %04d: %s", index+1, len(authors), author.Name)
-	return author, authors, index, nil
+	return authors, index, nil
 }
 
 func fetchAuthors(cfg aws.Config) ([]Author, error) {
@@ -121,9 +121,10 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 	return authors, nil
 }
 
-func processCore(cfg aws.Config, author *Author, authors []Author, index int) error {
+func processCore(cfg aws.Config, authors []Author, index int) error {
 	start := time.Now()
 	client := utils.CreateClient()
+	author := &authors[index]
 
 	notifiedMap, err := fetchNotifiedASINs(cfg, start)
 	if err != nil {
