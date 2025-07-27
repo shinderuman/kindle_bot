@@ -82,6 +82,55 @@ func initEnvironmentVariables() {
 	}
 }
 
+func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
+	authors, err := fetchAuthors(cfg)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
+	}
+	if len(authors) == 0 {
+		return nil, nil, 0, fmt.Errorf("no authors available")
+	}
+
+	index := getIndexByTime(len(authors))
+
+	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexObjectKey)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+	}
+	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
+
+	if prevIndex == index {
+		log.Println("Not my slot, skipping")
+		return nil, authors, index, nil
+	}
+
+	author := &authors[index]
+	log.Printf("Author %04d / %04d: %s", index+1, len(authors), author.Name)
+	return author, authors, index, nil
+}
+
+func fetchAuthors(cfg aws.Config) ([]Author, error) {
+	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch authors: %w", err)
+	}
+	var authors []Author
+	if err := json.Unmarshal(body, &authors); err != nil {
+		return nil, err
+	}
+	return authors, nil
+}
+
+func getIndexByTime(authorCount int) int {
+	if authorCount <= 0 {
+		return 0
+	}
+
+	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
+	sec := time.Now().Unix() % secondsPerCycle
+	return int(sec * int64(authorCount) / secondsPerCycle)
+}
+
 func processCore(cfg aws.Config, author *Author, authors []Author, index int) error {
 	start := time.Now()
 	client := utils.CreateClient()
@@ -178,55 +227,6 @@ func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleB
 	return m, nil
 }
 
-func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
-	authors, err := fetchAuthors(cfg)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
-	}
-	if len(authors) == 0 {
-		return nil, nil, 0, fmt.Errorf("no authors available")
-	}
-
-	index := getIndexByTime(len(authors))
-
-	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexObjectKey)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
-	}
-	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
-
-	if prevIndex == index {
-		log.Println("Not my slot, skipping")
-		return nil, authors, index, nil
-	}
-
-	author := &authors[index]
-	log.Printf("Author %04d / %04d: %s", index+1, len(authors), author.Name)
-	return author, authors, index, nil
-}
-
-func fetchAuthors(cfg aws.Config) ([]Author, error) {
-	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3AuthorsObjectKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch authors: %w", err)
-	}
-	var authors []Author
-	if err := json.Unmarshal(body, &authors); err != nil {
-		return nil, err
-	}
-	return authors, nil
-}
-
-func getIndexByTime(authorCount int) int {
-	if authorCount <= 0 {
-		return 0
-	}
-
-	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
-	sec := time.Now().Unix() % secondsPerCycle
-	return int(sec * int64(authorCount) / secondsPerCycle)
-}
-
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3ExcludedTitleKeywordsObjectKey)
 	if err != nil {
@@ -293,6 +293,16 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 	return false
 }
 
+func isNameMatched(author *Author, i entity.Item) bool {
+	authorName := normalizeName(author.Name)
+	for _, c := range i.ItemInfo.ByLineInfo.Contributors {
+		if strings.Contains(authorName, normalizeName(c.Name)) {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeName(name string) string {
 	var builder strings.Builder
 	for _, r := range name {
@@ -309,16 +319,6 @@ func normalizeName(name string) string {
 
 	normalized := strings.ReplaceAll(builder.String(), " ", "")
 	return strings.TrimSpace(normalized)
-}
-
-func isNameMatched(author *Author, i entity.Item) bool {
-	authorName := normalizeName(author.Name)
-	for _, c := range i.ItemInfo.ByLineInfo.Contributors {
-		if strings.Contains(authorName, normalizeName(c.Name)) {
-			return true
-		}
-	}
-	return false
 }
 
 func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error {

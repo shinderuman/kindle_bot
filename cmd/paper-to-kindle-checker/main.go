@@ -118,6 +118,38 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item
 	return nil, nil
 }
 
+func cleanTitle(title string) string {
+	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕]|\s*[0-9]+.*$`).ReplaceAllString(title, ""))
+}
+
+func isSameKindleBook(paper, kindle entity.Item) bool {
+	if paper.ASIN == kindle.ASIN {
+		return false
+	}
+	if kindle.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
+		return false
+	}
+	if paper.ItemInfo.ProductInfo.ReleaseDate == nil {
+		return false
+	}
+	if kindle.ItemInfo.ProductInfo.ReleaseDate == nil {
+		return false
+	}
+	return paper.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") ==
+		kindle.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02")
+}
+
+func formatSlackMessage(paper, kindle entity.Item) string {
+	return fmt.Sprintf(
+		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+		kindle.ItemInfo.Title.DisplayValue,
+		(*paper.Offers.Listings)[0].Price.Amount,
+		paper.DetailPageURL,
+		(*kindle.Offers.Listings)[0].Price.Amount,
+		kindle.DetailPageURL,
+	)
+}
+
 func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
 	if len(newItems) == 0 {
 		return nil
@@ -147,36 +179,4 @@ func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
 		return fmt.Errorf("failed to save notified ASINs: %w", err)
 	}
 	return nil
-}
-
-func cleanTitle(title string) string {
-	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕]|\s*[0-9]+.*$`).ReplaceAllString(title, ""))
-}
-
-func formatSlackMessage(paper, kindle entity.Item) string {
-	return fmt.Sprintf(
-		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
-		kindle.ItemInfo.Title.DisplayValue,
-		(*paper.Offers.Listings)[0].Price.Amount,
-		paper.DetailPageURL,
-		(*kindle.Offers.Listings)[0].Price.Amount,
-		kindle.DetailPageURL,
-	)
-}
-
-func isSameKindleBook(paper, kindle entity.Item) bool {
-	if paper.ASIN == kindle.ASIN {
-		return false
-	}
-	if kindle.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
-		return false
-	}
-	if paper.ItemInfo.ProductInfo.ReleaseDate == nil {
-		return false
-	}
-	if kindle.ItemInfo.ProductInfo.ReleaseDate == nil {
-		return false
-	}
-	return paper.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") ==
-		kindle.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02")
 }
