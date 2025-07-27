@@ -35,11 +35,11 @@ func process() error {
 
 	initEnvironmentVariables()
 
-	book, books, index, err := getBookToProcess(cfg)
+	books, index, err := getBookToProcess(cfg)
 	if err != nil {
 		return err
 	}
-	if book == nil {
+	if books == nil {
 		return nil
 	}
 
@@ -47,7 +47,7 @@ func process() error {
 		return err
 	}
 
-	if err = processCore(cfg, book, books, index); err != nil {
+	if err = processCore(cfg, books, index); err != nil {
 		return err
 	}
 
@@ -70,31 +70,30 @@ func initEnvironmentVariables() {
 	}
 }
 
-func getBookToProcess(cfg aws.Config) (*utils.KindleBook, []utils.KindleBook, int, error) {
+func getBookToProcess(cfg aws.Config) ([]utils.KindleBook, int, error) {
 	books, err := fetchPaperBooks(cfg)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch paper books: %w", err)
+		return nil, 0, fmt.Errorf("failed to fetch paper books: %w", err)
 	}
 	if len(books) == 0 {
-		return nil, nil, 0, fmt.Errorf("no paper books available")
+		return nil, 0, fmt.Errorf("no paper books available")
 	}
 
 	index := utils.GetIndexByTime(len(books), cycleDays)
 
 	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
 		log.Println("Not my slot, skipping")
-		return nil, books, index, nil
+		return nil, 0, nil
 	}
 
-	book := &books[index]
-	log.Printf("Book %04d / %04d: %s", index+1, len(books), book.Title)
-	return book, books, index, nil
+	log.Printf("Book %04d / %04d: %s", index+1, len(books), books[index].Title)
+	return books, index, nil
 }
 
 func fetchPaperBooks(cfg aws.Config) ([]utils.KindleBook, error) {
@@ -109,24 +108,27 @@ func fetchPaperBooks(cfg aws.Config) ([]utils.KindleBook, error) {
 	return books, nil
 }
 
-func processCore(cfg aws.Config, book *utils.KindleBook, books []utils.KindleBook, index int) error {
+func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	client := utils.CreateClient()
+	book := &books[index]
 
-	items, err := utils.GetItems(cfg, client, []string{book.ASIN})
-	if err != nil {
-		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-		return fmt.Errorf("failed to get item details for ASIN %s: %w", book.ASIN, err)
+	if book.Title == "" {
+		items, err := utils.GetItems(cfg, client, []string{book.ASIN})
+		if err != nil {
+			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
+			return fmt.Errorf("failed to get item details for ASIN %s: %w", book.ASIN, err)
+		}
+
+		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+		if len(items.ItemsResult.Items) == 0 {
+			log.Printf("No item found for ASIN: %s", book.ASIN)
+			return nil
+		}
+
+		book.Title = items.ItemsResult.Items[0].ItemInfo.Title.DisplayValue
 	}
 
-	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
-	if len(items.ItemsResult.Items) == 0 {
-		log.Printf("No item found for ASIN: %s", book.ASIN)
-		return nil
-	}
-
-	paper := items.ItemsResult.Items[0]
-
-	kindleItem, err := searchKindleEdition(cfg, client, paper)
+	kindleItem, err := searchKindleEdition(cfg, client, *book)
 	if err != nil {
 		utils.AlertToSlack(err, false)
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
@@ -144,10 +146,10 @@ func processCore(cfg aws.Config, book *utils.KindleBook, books []utils.KindleBoo
 	}
 
 	if kindleItem != nil {
-		utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
+		utils.LogAndNotify(formatSlackMessage(*book, *kindleItem), true)
 		newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
 	} else {
-		updatedBooks = append(updatedBooks, utils.MakeBook(paper, 0))
+		updatedBooks = append(updatedBooks, *book)
 	}
 
 	if err := updateASINs(cfg, newUnprocessed); err != nil {
@@ -164,12 +166,12 @@ func processCore(cfg aws.Config, book *utils.KindleBook, books []utils.KindleBoo
 	return nil
 }
 
-func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper entity.Item) (*entity.Item, error) {
+func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
 		query.Title,
-		cleanTitle(paper.ItemInfo.Title.DisplayValue),
-		(*paper.Offers.Listings)[0].Price.Amount+20000,
+		cleanTitle(paper.Title),
+		paper.CurrentPrice+20000,
 	)
 
 	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
@@ -193,29 +195,26 @@ func cleanTitle(title string) string {
 	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕]|\s*[0-9]+.*$`).ReplaceAllString(title, ""))
 }
 
-func isSameKindleBook(paper, kindle entity.Item) bool {
+func isSameKindleBook(paper utils.KindleBook, kindle entity.Item) bool {
 	if paper.ASIN == kindle.ASIN {
 		return false
 	}
 	if kindle.ItemInfo.Classifications.Binding.DisplayValue != "Kindle版" {
 		return false
 	}
-	if paper.ItemInfo.ProductInfo.ReleaseDate == nil {
-		return false
-	}
 	if kindle.ItemInfo.ProductInfo.ReleaseDate == nil {
 		return false
 	}
-	return paper.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02") ==
+	return paper.ReleaseDate.Format("2006-01-02") ==
 		kindle.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02")
 }
 
-func formatSlackMessage(paper, kindle entity.Item) string {
+func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
 	return fmt.Sprintf(
 		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
 		kindle.ItemInfo.Title.DisplayValue,
-		(*paper.Offers.Listings)[0].Price.Amount,
-		paper.DetailPageURL,
+		paper.CurrentPrice,
+		paper.URL,
 		(*kindle.Offers.Listings)[0].Price.Amount,
 		kindle.DetailPageURL,
 	)
