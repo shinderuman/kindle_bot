@@ -125,7 +125,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 			return nil
 		}
 
-		book.Title = items.ItemsResult.Items[0].ItemInfo.Title.DisplayValue
+		*book = utils.MakeBook(items.ItemsResult.Items[0], 0)
 	}
 
 	kindleItem, err := searchKindleEdition(cfg, client, *book)
