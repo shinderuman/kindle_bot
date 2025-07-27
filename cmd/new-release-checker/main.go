@@ -100,7 +100,7 @@ func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
-		log.Println("Not my slot, skipping")
+		log.Printf("Not my slot, skipping (Author %04d / %04d)", index+1, len(authors))
 		return nil, 0, nil
 	}
 
