@@ -117,26 +117,27 @@ func InitConfig() error {
 
 			paramMap := plainParams
 			EnvConfig = Config{
-				S3BucketName:                     paramMap["S3_BUCKET_NAME"],
-				S3UnprocessedObjectKey:           paramMap["S3_UNPROCESSED_OBJECT_KEY"],
-				S3PaperBooksObjectKey:            paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
-				S3AuthorsObjectKey:               paramMap["S3_AUTHORS_OBJECT_KEY"],
-				S3ExcludedTitleKeywordsObjectKey: paramMap["S3_EXCLUDED_TITLE_KEYWORDS_OBJECT_KEY"],
-				S3NotifiedObjectKey:              paramMap["S3_NOTIFIED_OBJECT_KEY"],
-				S3UpcomingObjectKey:              paramMap["S3_UPCOMING_OBJECT_KEY"],
-				S3PrevIndexObjectKey:             paramMap["S3_PREV_INDEX_OBJECT_KEY"],
-				S3Region:                         paramMap["S3_REGION"],
-				AmazonPartnerTag:                 paramMap["AMAZON_PARTNER_TAG"],
-				AmazonAccessKey:                  paramMap["AMAZON_ACCESS_KEY"],
-				AmazonSecretKey:                  paramMap["AMAZON_SECRET_KEY"],
-				MastodonServer:                   paramMap["MASTODON_SERVER"],
-				MastodonClientID:                 paramMap["MASTODON_CLIENT_ID"],
-				MastodonClientSecret:             paramMap["MASTODON_CLIENT_SECRET"],
-				MastodonAccessToken:              paramMap["MASTODON_ACCESS_TOKEN"],
-				SlackBotToken:                    paramMap["SLACK_BOT_TOKEN"],
-				SlackNoticeChannel:               paramMap["SLACK_NOTICE_CHANNEL"],
-				SlackErrorChannel:                paramMap["SLACK_ERROR_CHANNEL"],
-				GitHubToken:                      paramMap["GITHUB_TOKEN"],
+				S3BucketName:                      paramMap["S3_BUCKET_NAME"],
+				S3UnprocessedObjectKey:            paramMap["S3_UNPROCESSED_OBJECT_KEY"],
+				S3PaperBooksObjectKey:             paramMap["S3_PAPER_BOOKS_OBJECT_KEY"],
+				S3AuthorsObjectKey:                paramMap["S3_AUTHORS_OBJECT_KEY"],
+				S3ExcludedTitleKeywordsObjectKey:  paramMap["S3_EXCLUDED_TITLE_KEYWORDS_OBJECT_KEY"],
+				S3NotifiedObjectKey:               paramMap["S3_NOTIFIED_OBJECT_KEY"],
+				S3UpcomingObjectKey:               paramMap["S3_UPCOMING_OBJECT_KEY"],
+				S3PrevIndexNewReleaseObjectKey:    paramMap["S3_PREV_INDEX_NEW_RELEASE_OBJECT_KEY"],
+				S3PrevIndexPaperToKindleObjectKey: paramMap["S3_PREV_INDEX_PAPER_TO_KINDLE_OBJECT_KEY"],
+				S3Region:                          paramMap["S3_REGION"],
+				AmazonPartnerTag:                  paramMap["AMAZON_PARTNER_TAG"],
+				AmazonAccessKey:                   paramMap["AMAZON_ACCESS_KEY"],
+				AmazonSecretKey:                   paramMap["AMAZON_SECRET_KEY"],
+				MastodonServer:                    paramMap["MASTODON_SERVER"],
+				MastodonClientID:                  paramMap["MASTODON_CLIENT_ID"],
+				MastodonClientSecret:              paramMap["MASTODON_CLIENT_SECRET"],
+				MastodonAccessToken:               paramMap["MASTODON_ACCESS_TOKEN"],
+				SlackBotToken:                     paramMap["SLACK_BOT_TOKEN"],
+				SlackNoticeChannel:                paramMap["SLACK_NOTICE_CHANNEL"],
+				SlackErrorChannel:                 paramMap["SLACK_ERROR_CHANNEL"],
+				GitHubToken:                       paramMap["GITHUB_TOKEN"],
 			}
 		})
 	} else {
@@ -562,4 +563,14 @@ func PutMetric(cfg aws.Config, namespace, metricName string) error {
 		},
 	})
 	return err
+}
+
+func GetIndexByTime(itemCount int, cycleDays int) int {
+	if itemCount <= 0 {
+		return 0
+	}
+
+	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
+	sec := time.Now().Unix() % secondsPerCycle
+	return int(sec * int64(itemCount) / secondsPerCycle)
 }

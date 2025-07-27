@@ -55,7 +55,7 @@ func process() error {
 		return nil
 	}
 
-	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexObjectKey); err != nil {
+	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexNewReleaseObjectKey); err != nil {
 		return err
 	}
 
@@ -91,9 +91,9 @@ func getAuthorToProcess(cfg aws.Config) (*Author, []Author, int, error) {
 		return nil, nil, 0, fmt.Errorf("no authors available")
 	}
 
-	index := getIndexByTime(len(authors))
+	index := utils.GetIndexByTime(len(authors), cycleDays)
 
-	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexObjectKey)
+	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
@@ -119,16 +119,6 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 		return nil, err
 	}
 	return authors, nil
-}
-
-func getIndexByTime(authorCount int) int {
-	if authorCount <= 0 {
-		return 0
-	}
-
-	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
-	sec := time.Now().Unix() % secondsPerCycle
-	return int(sec * int64(authorCount) / secondsPerCycle)
 }
 
 func processCore(cfg aws.Config, author *Author, authors []Author, index int) error {

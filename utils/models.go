@@ -5,27 +5,28 @@ import (
 )
 
 type Config struct {
-	S3BucketName                     string `json:"S3BucketName"`
-	S3UnprocessedObjectKey           string `json:"S3UnprocessedObjectKey"`
-	S3PaperBooksObjectKey            string `json:"S3PaperBooksObjectKey"`
-	S3OngoingObjectKey               string `json:"S3OngoingObjectKey"`
-	S3AuthorsObjectKey               string `json:"S3AuthorsObjectKey"`
-	S3ExcludedTitleKeywordsObjectKey string `json:"S3ExcludedTitleKeywordsObjectKey"`
-	S3NotifiedObjectKey              string `json:"S3NotifiedObjectKey"`
-	S3UpcomingObjectKey              string `json:"S3UpcomingObjectKey"`
-	S3PrevIndexObjectKey             string `json:"S3PrevIndexObjectKey"`
-	S3Region                         string `json:"S3Region"`
-	AmazonPartnerTag                 string `json:"AmazonPartnerTag"`
-	AmazonAccessKey                  string `json:"AmazonAccessKey"`
-	AmazonSecretKey                  string `json:"AmazonSecretKey"`
-	MastodonServer                   string `json:"MastodonServer"`
-	MastodonClientID                 string `json:"MastodonClientID"`
-	MastodonClientSecret             string `json:"MastodonClientSecret"`
-	MastodonAccessToken              string `json:"MastodonAccessToken"`
-	SlackBotToken                    string `json:"SlackBotToken"`
-	SlackNoticeChannel               string `json:"SlackNoticeChannel"`
-	SlackErrorChannel                string `json:"SlackErrorChannel"`
-	GitHubToken                      string `json:"GitHubToken"`
+	S3BucketName                      string `json:"S3BucketName"`
+	S3UnprocessedObjectKey            string `json:"S3UnprocessedObjectKey"`
+	S3PaperBooksObjectKey             string `json:"S3PaperBooksObjectKey"`
+	S3OngoingObjectKey                string `json:"S3OngoingObjectKey"`
+	S3AuthorsObjectKey                string `json:"S3AuthorsObjectKey"`
+	S3ExcludedTitleKeywordsObjectKey  string `json:"S3ExcludedTitleKeywordsObjectKey"`
+	S3NotifiedObjectKey               string `json:"S3NotifiedObjectKey"`
+	S3UpcomingObjectKey               string `json:"S3UpcomingObjectKey"`
+	S3PrevIndexNewReleaseObjectKey    string `json:"S3PrevIndexNewReleaseObjectKey"`
+	S3PrevIndexPaperToKindleObjectKey string `json:"S3PrevIndexPaperToKindleObjectKey"`
+	S3Region                          string `json:"S3Region"`
+	AmazonPartnerTag                  string `json:"AmazonPartnerTag"`
+	AmazonAccessKey                   string `json:"AmazonAccessKey"`
+	AmazonSecretKey                   string `json:"AmazonSecretKey"`
+	MastodonServer                    string `json:"MastodonServer"`
+	MastodonClientID                  string `json:"MastodonClientID"`
+	MastodonClientSecret              string `json:"MastodonClientSecret"`
+	MastodonAccessToken               string `json:"MastodonAccessToken"`
+	SlackBotToken                     string `json:"SlackBotToken"`
+	SlackNoticeChannel                string `json:"SlackNoticeChannel"`
+	SlackErrorChannel                 string `json:"SlackErrorChannel"`
+	GitHubToken                       string `json:"GitHubToken"`
 }
 
 type KindleBook struct {

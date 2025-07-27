@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,8 +18,9 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
+var (
 	paapiMaxRetryCount = 5
+	cycleDays          = 1
 )
 
 func main() {
@@ -29,63 +33,130 @@ func process() error {
 		return err
 	}
 
-	client := utils.CreateClient()
-	originalPaperBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
+	initEnvironmentVariables()
+
+	book, books, index, err := getBookToProcess(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to fetch paper books: %w", err)
+		return err
+	}
+	if book == nil {
+		return nil
 	}
 
-	var newUnprocessed, newPaperBooks []utils.KindleBook
-	var successfulRequests int
-	var totalRequests int
+	if err = utils.PutS3Object(cfg, strconv.Itoa(index), utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey); err != nil {
+		return err
+	}
 
-	chunks := utils.ChunkedASINs(utils.UniqueASINs(originalPaperBooks), 10)
-	totalRequests = len(chunks)
+	if err = processCore(cfg, book, books, index); err != nil {
+		return err
+	}
 
-	for _, chunk := range chunks {
-		items, err := utils.GetItems(cfg, client, chunk)
-		if err != nil {
-			newPaperBooks = append(newPaperBooks, utils.AppendFallbackBooks(chunk, originalPaperBooks)...)
-			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("Error fetching item details: %v", err), false)
-			continue
-		}
-		successfulRequests++
-		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "SlotSuccess")
 
-		for _, paper := range items.ItemsResult.Items {
-			log.Println(paper.ItemInfo.Title.DisplayValue)
+	return nil
+}
 
-			kindleItem, err := searchKindleEdition(cfg, client, paper)
-			if err != nil {
-				utils.AlertToSlack(err, false)
-				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
-				utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-				continue
-			}
-			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
-
-			if kindleItem != nil {
-				utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
-				newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
-			} else {
-				newPaperBooks = append(newPaperBooks, utils.MakeBook(paper, 0))
-			}
+func initEnvironmentVariables() {
+	if envRetryCount := os.Getenv("PAPER_TO_KINDLE_PAAPI_RETRY_COUNT"); envRetryCount != "" {
+		if count, err := strconv.Atoi(envRetryCount); err == nil && count > 0 {
+			paapiMaxRetryCount = count
 		}
 	}
 
-	// If all PA API requests failed, return error
-	if successfulRequests == 0 && totalRequests > 0 {
-		return fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, totalRequests)
+	if envDays := os.Getenv("PAPER_TO_KINDLE_CYCLE_DAYS"); envDays != "" {
+		if days, err := strconv.Atoi(envDays); err == nil && days > 0 {
+			cycleDays = days
+		}
+	}
+}
+
+func getBookToProcess(cfg aws.Config) (*utils.KindleBook, []utils.KindleBook, int, error) {
+	books, err := fetchPaperBooks(cfg)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to fetch paper books: %w", err)
+	}
+	if len(books) == 0 {
+		return nil, nil, 0, fmt.Errorf("no paper books available")
+	}
+
+	index := utils.GetIndexByTime(len(books), cycleDays)
+
+	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+	}
+	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
+
+	if prevIndex == index {
+		log.Println("Not my slot, skipping")
+		return nil, books, index, nil
+	}
+
+	book := &books[index]
+	log.Printf("Book %04d / %04d: %s", index+1, len(books), book.Title)
+	return book, books, index, nil
+}
+
+func fetchPaperBooks(cfg aws.Config) ([]utils.KindleBook, error) {
+	body, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PaperBooksObjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch paper books: %w", err)
+	}
+	var books []utils.KindleBook
+	if err := json.Unmarshal(body, &books); err != nil {
+		return nil, err
+	}
+	return books, nil
+}
+
+func processCore(cfg aws.Config, book *utils.KindleBook, books []utils.KindleBook, index int) error {
+	client := utils.CreateClient()
+
+	items, err := utils.GetItems(cfg, client, []string{book.ASIN})
+	if err != nil {
+		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
+		return fmt.Errorf("failed to get item details for ASIN %s: %w", book.ASIN, err)
+	}
+
+	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+	if len(items.ItemsResult.Items) == 0 {
+		log.Printf("No item found for ASIN: %s", book.ASIN)
+		return nil
+	}
+
+	paper := items.ItemsResult.Items[0]
+
+	kindleItem, err := searchKindleEdition(cfg, client, paper)
+	if err != nil {
+		utils.AlertToSlack(err, false)
+		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
+		return err
+	}
+	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
+
+	var newUnprocessed []utils.KindleBook
+	var updatedBooks []utils.KindleBook
+
+	for i, b := range books {
+		if i != index {
+			updatedBooks = append(updatedBooks, b)
+		}
+	}
+
+	if kindleItem != nil {
+		utils.LogAndNotify(formatSlackMessage(paper, *kindleItem), true)
+		newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
+	} else {
+		updatedBooks = append(updatedBooks, utils.MakeBook(paper, 0))
 	}
 
 	if err := updateASINs(cfg, newUnprocessed); err != nil {
 		return err
 	}
 
-	utils.SortByReleaseDate(newPaperBooks)
-	if !reflect.DeepEqual(originalPaperBooks, newPaperBooks) {
-		if err := utils.SaveASINs(cfg, newPaperBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+	utils.SortByReleaseDate(updatedBooks)
+	if !reflect.DeepEqual(books, updatedBooks) {
+		if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("failed to save paper books: %w", err)
 		}
 	}
