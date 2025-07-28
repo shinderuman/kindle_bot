@@ -88,11 +88,11 @@ func getBookToProcess(cfg aws.Config) ([]utils.KindleBook, int, error) {
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
-		log.Printf("Not my slot, skipping (Book %04d / %04d)", index+1, len(books))
+		log.Printf("Not my slot, skipping (%03d / %03d)", index+1, len(books))
 		return nil, 0, nil
 	}
 
-	log.Printf("Book %04d / %04d: %s", index+1, len(books), books[index].Title)
+	log.Printf("%03d / %03d: %s", index+1, len(books), books[index].Title)
 	return books, index, nil
 }
 
@@ -116,7 +116,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		items, err := utils.GetItems(cfg, client, []string{book.ASIN})
 		if err != nil {
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-			return fmt.Errorf("failed to get item details for ASIN %s: %w", book.ASIN, err)
+			return formatProcessError("getItems", index, books, book, err)
 		}
 
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
@@ -130,9 +130,8 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 
 	kindleItem, err := searchKindleEdition(cfg, client, *book)
 	if err != nil {
-		utils.AlertToSlack(err, false)
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-		return err
+		return formatProcessError("searchKindleEdition", index, books, book, err)
 	}
 	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
@@ -164,6 +163,17 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	}
 
 	return nil
+}
+
+func formatProcessError(operation string, index int, books []utils.KindleBook, book *utils.KindleBook, err error) error {
+	return fmt.Errorf(
+		"%s: %03d / %03d\nhttps://www.amazon.co.jp/dp/%s\n%v",
+		operation,
+		index+1,
+		len(books),
+		book.ASIN,
+		err,
+	)
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {

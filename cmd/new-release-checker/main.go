@@ -100,12 +100,12 @@ func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
-		log.Printf("Not my slot, skipping (Author %04d / %04d)", index+1, len(authors))
+		log.Printf("Not my slot, skipping (%04d / %04d)", index+1, len(authors))
 		return nil, 0, nil
 	}
 
 	author := &authors[index]
-	log.Printf("Author %04d / %04d: %s", index+1, len(authors), author.Name)
+	log.Printf("%04d / %04d: %s", index+1, len(authors), author.Name)
 	return authors, index, nil
 }
 
@@ -141,7 +141,7 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
 		return fmt.Errorf(
-			"Author %04d / %04d: %s\n%s\n%v",
+			"%04d / %04d: %s\n%s\n%v",
 			index+1,
 			len(authors),
 			author.Name,
