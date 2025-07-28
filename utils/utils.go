@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"math"
 	"math/rand"
 	"net/http"
@@ -110,9 +111,7 @@ func InitConfig() error {
 				return
 			}
 
-			for k, v := range secureParams {
-				plainParams[k] = v
-			}
+			maps.Copy(plainParams, secureParams)
 
 			paramMap := plainParams
 			EnvConfig = Config{
@@ -277,10 +276,7 @@ func UniqueASINs(slice []KindleBook) []KindleBook {
 func ChunkedASINs(books []KindleBook, size int) [][]string {
 	var chunks [][]string
 	for i := 0; i < len(books); i += size {
-		end := i + size
-		if end > len(books) {
-			end = len(books)
-		}
+		end := min(i+size, len(books))
 		var chunk []string
 		for _, book := range books[i:end] {
 			chunk = append(chunk, book.ASIN)
@@ -353,7 +349,7 @@ func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, max
 
 func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
 	const maxWait = 30 * time.Second
-	for i := 0; i < maxRetryCount; i++ {
+	for i := range maxRetryCount {
 		body, err := client.Request(q)
 		PutMetric(cfg, "KindleBot/Usage", "PAAPIRequest")
 		if err == nil {
