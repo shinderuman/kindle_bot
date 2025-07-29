@@ -25,8 +25,8 @@ const (
 )
 
 var (
-	paapiMaxRetryCount = 3
-	cycleDays          = 7
+	paapiMaxRetryCount         = 3
+	cycleDays          float64 = 7
 )
 
 type Author struct {
@@ -76,7 +76,7 @@ func initEnvironmentVariables() {
 	}
 
 	if envDays := os.Getenv("NEW_RELEASE_CYCLE_DAYS"); envDays != "" {
-		if days, err := strconv.Atoi(envDays); err == nil && days > 0 {
+		if days, err := strconv.ParseFloat(envDays, 64); err == nil && days > 0 {
 			cycleDays = days
 		}
 	}

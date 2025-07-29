@@ -609,7 +609,7 @@ func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	return err
 }
 
-func ProcessSlot(cfg aws.Config, itemCount, cycleDays int, prevIndexKey string) (int, bool, error) {
+func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey string) (int, bool, error) {
 	if itemCount == 0 {
 		return 0, false, fmt.Errorf("no items available")
 	}
@@ -632,7 +632,7 @@ func ProcessSlot(cfg aws.Config, itemCount, cycleDays int, prevIndexKey string) 
 	return index, true, nil
 }
 
-func getIndexByTime(itemCount int, cycleDays int) int {
+func getIndexByTime(itemCount int, cycleDays float64) int {
 	if itemCount <= 0 {
 		return 0
 	}
