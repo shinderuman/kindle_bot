@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	paapi5 "github.com/goark/pa-api"
@@ -75,24 +75,17 @@ func getBookToProcess(cfg aws.Config) ([]utils.KindleBook, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch paper books: %w", err)
 	}
-	if len(books) == 0 {
-		return nil, 0, fmt.Errorf("no paper books available")
-	}
 
-	index := utils.GetIndexByTime(len(books), cycleDays)
-
-	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
+	index, shouldProcess, err := utils.ProcessSlot(cfg, len(books), cycleDays, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return nil, 0, err
 	}
-	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
-
-	if prevIndex == index {
-		log.Printf("Not my slot, skipping (%03d / %03d)", index+1, len(books))
+	if !shouldProcess {
 		return nil, 0, nil
 	}
 
-	log.Printf("%03d / %03d: %s", index+1, len(books), books[index].Title)
+	format := utils.GetCountFormat(len(books))
+	log.Printf(fmt.Sprintf("%s / %s: %%s", format, format), index+1, len(books), books[index].Title)
 	return books, index, nil
 }
 
@@ -135,28 +128,31 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	}
 	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
-	var newUnprocessed []utils.KindleBook
-	var updatedBooks []utils.KindleBook
-
-	for i, b := range books {
-		if i != index {
-			updatedBooks = append(updatedBooks, b)
-		}
-	}
-
 	if kindleItem != nil {
 		utils.LogAndNotify(formatSlackMessage(*book, *kindleItem), true)
-		newUnprocessed = append(newUnprocessed, utils.MakeBook(*kindleItem, 0))
-	} else {
-		updatedBooks = append(updatedBooks, *book)
-	}
 
-	if err := updateASINs(cfg, newUnprocessed); err != nil {
-		return err
-	}
+		notifiedMap, err := utils.FetchNotifiedASINs(cfg, time.Now())
+		if err != nil {
+			return err
+		}
 
-	utils.SortByReleaseDate(updatedBooks)
-	if !reflect.DeepEqual(books, updatedBooks) {
+		upcomingMap := make(map[string]utils.KindleBook)
+		b := utils.MakeBook(*kindleItem, 0)
+		notifiedMap[kindleItem.ASIN] = b
+		upcomingMap[kindleItem.ASIN] = b
+
+		if err := utils.SaveNotifiedAndUpcomingASINs(cfg, notifiedMap, upcomingMap); err != nil {
+			return err
+		}
+
+		var updatedBooks []utils.KindleBook
+		for i, b := range books {
+			if i != index {
+				updatedBooks = append(updatedBooks, b)
+			}
+		}
+
+		utils.SortByReleaseDate(updatedBooks)
 		if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("failed to save paper books: %w", err)
 		}
@@ -228,35 +224,4 @@ func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
 		(*kindle.Offers.Listings)[0].Price.Amount,
 		kindle.DetailPageURL,
 	)
-}
-
-func updateASINs(cfg aws.Config, newItems []utils.KindleBook) error {
-	if len(newItems) == 0 {
-		return nil
-	}
-
-	currentUnprocessed, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
-	if err != nil {
-		return fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
-	}
-
-	allUnprocessed := append(currentUnprocessed, newItems...)
-	utils.SortByReleaseDate(allUnprocessed)
-
-	if err := utils.SaveASINs(cfg, allUnprocessed, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
-		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
-	}
-
-	currentNotified, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
-	if err != nil {
-		return fmt.Errorf("failed to fetch notified ASINs: %w", err)
-	}
-
-	allNotified := append(currentNotified, newItems...)
-	utils.SortByReleaseDate(allNotified)
-
-	if err := utils.SaveASINs(cfg, allNotified, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
-		return fmt.Errorf("failed to save notified ASINs: %w", err)
-	}
-	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -423,6 +424,54 @@ func PrintPrettyJSON(v any) {
 	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
 }
 
+func FetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]KindleBook, error) {
+	books, err := FetchASINs(cfg, EnvConfig.S3NotifiedObjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch notified ASINs: %w", err)
+	}
+	m := make(map[string]KindleBook)
+	for _, b := range books {
+		if b.ReleaseDate.After(now) {
+			m[b.ASIN] = b
+		}
+	}
+	return m, nil
+}
+
+func SaveNotifiedAndUpcomingASINs(cfg aws.Config, notifiedMap, upcomingMap map[string]KindleBook) error {
+	if len(upcomingMap) == 0 {
+		return nil
+	}
+
+	if err := saveASINsFromMap(cfg, notifiedMap, EnvConfig.S3NotifiedObjectKey); err != nil {
+		return err
+	}
+
+	return updateUpcomingASINs(cfg, upcomingMap)
+}
+
+func updateUpcomingASINs(cfg aws.Config, upcomingMap map[string]KindleBook) error {
+	currentUpcoming, err := FetchASINs(cfg, EnvConfig.S3UpcomingObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to fetch upcoming ASINs: %w", err)
+	}
+
+	for _, b := range currentUpcoming {
+		upcomingMap[b.ASIN] = b
+	}
+
+	return saveASINsFromMap(cfg, upcomingMap, EnvConfig.S3UpcomingObjectKey)
+}
+
+func saveASINsFromMap(cfg aws.Config, m map[string]KindleBook, key string) error {
+	var list []KindleBook
+	for _, book := range m {
+		list = append(list, book)
+	}
+	SortByReleaseDate(list)
+	return SaveASINs(cfg, list, key)
+}
+
 func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	prettyJSON, err := json.MarshalIndent(ASINs, "", "    ")
 	if err != nil {
@@ -560,7 +609,30 @@ func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	return err
 }
 
-func GetIndexByTime(itemCount int, cycleDays int) int {
+func ProcessSlot(cfg aws.Config, itemCount, cycleDays int, prevIndexKey string) (int, bool, error) {
+	if itemCount == 0 {
+		return 0, false, fmt.Errorf("no items available")
+	}
+
+	index := getIndexByTime(itemCount, cycleDays)
+	format := GetCountFormat(itemCount)
+
+	prevIndexBytes, err := GetS3Object(cfg, prevIndexKey)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to fetch prev_index: %w", err)
+	}
+	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
+
+	if prevIndex == index {
+		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s)", format, format)
+		log.Printf(skipLogFormat, index+1, itemCount)
+		return index, false, nil
+	}
+
+	return index, true, nil
+}
+
+func getIndexByTime(itemCount int, cycleDays int) int {
 	if itemCount <= 0 {
 		return 0
 	}
@@ -568,4 +640,9 @@ func GetIndexByTime(itemCount int, cycleDays int) int {
 	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
 	sec := time.Now().Unix() % secondsPerCycle
 	return int(sec * int64(itemCount) / secondsPerCycle)
+}
+
+func GetCountFormat(itemCount int) string {
+	digits := len(fmt.Sprintf("%d", itemCount))
+	return fmt.Sprintf("%%0%dd", digits+1)
 }

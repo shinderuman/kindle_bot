@@ -87,25 +87,17 @@ func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
 	}
-	if len(authors) == 0 {
-		return nil, 0, fmt.Errorf("no authors available")
-	}
 
-	index := utils.GetIndexByTime(len(authors), cycleDays)
-
-	prevIndexBytes, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
+	index, shouldProcess, err := utils.ProcessSlot(cfg, len(authors), cycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return nil, 0, err
 	}
-	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
-
-	if prevIndex == index {
-		log.Printf("Not my slot, skipping (%04d / %04d)", index+1, len(authors))
+	if !shouldProcess {
 		return nil, 0, nil
 	}
 
-	author := &authors[index]
-	log.Printf("%04d / %04d: %s", index+1, len(authors), author.Name)
+	format := utils.GetCountFormat(len(authors))
+	log.Printf(fmt.Sprintf("%s / %s: %%s", format, format), index+1, len(authors), authors[index].Name)
 	return authors, index, nil
 }
 
@@ -126,7 +118,7 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 	client := utils.CreateClient()
 	author := &authors[index]
 
-	notifiedMap, err := fetchNotifiedASINs(cfg, start)
+	notifiedMap, err := utils.FetchNotifiedASINs(cfg, start)
 	if err != nil {
 		return err
 	}
@@ -174,25 +166,12 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 		upcomingMap[item.ASIN] = b
 	}
 
-	if len(upcomingMap) > 0 {
-		if err := saveASINs(cfg, notifiedMap, utils.EnvConfig.S3NotifiedObjectKey); err != nil {
-			return err
-		}
-
-		books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
-		if err != nil {
-			return err
-		}
-		for _, b := range books {
-			upcomingMap[b.ASIN] = b
-		}
-		if err := saveASINs(cfg, upcomingMap, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
-			return err
-		}
+	if err := utils.SaveNotifiedAndUpcomingASINs(cfg, notifiedMap, upcomingMap); err != nil {
+		return err
 	}
 
 	if !author.LatestReleaseDate.Equal(latest) {
-		authors = SortUniqueAuthors(authors)
+		authors = sortUniqueAuthors(authors)
 		if err := saveAuthors(cfg, authors); err != nil {
 			return err
 		}
@@ -202,20 +181,6 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 	}
 
 	return nil
-}
-
-func fetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]utils.KindleBook, error) {
-	books, err := utils.FetchASINs(cfg, utils.EnvConfig.S3NotifiedObjectKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch notified ASINs: %w", err)
-	}
-	m := make(map[string]utils.KindleBook)
-	for _, b := range books {
-		if b.ReleaseDate.After(now) {
-			m[b.ASIN] = b
-		}
-	}
-	return m, nil
 }
 
 func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
@@ -312,16 +277,7 @@ func normalizeName(name string) string {
 	return strings.TrimSpace(normalized)
 }
 
-func saveASINs(cfg aws.Config, m map[string]utils.KindleBook, key string) error {
-	var list []utils.KindleBook
-	for _, book := range m {
-		list = append(list, book)
-	}
-	utils.SortByReleaseDate(list)
-	return utils.SaveASINs(cfg, list, key)
-}
-
-func SortUniqueAuthors(authors []Author) []Author {
+func sortUniqueAuthors(authors []Author) []Author {
 	seen := make(map[string]bool)
 	uniqueAuthors := make([]Author, 0, len(authors))
 
