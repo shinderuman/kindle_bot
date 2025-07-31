@@ -185,8 +185,8 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.Kindl
 		return nil, err
 	}
 
-	if res.SearchResult == nil {
-		return nil, nil
+	if res.SearchResult == nil || len(res.SearchResult.Items) == 0 {
+		return nil, fmt.Errorf("no search results found for title: %s", paper.Title)
 	}
 
 	for _, kindle := range res.SearchResult.Items {
