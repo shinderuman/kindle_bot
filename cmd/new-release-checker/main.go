@@ -28,6 +28,7 @@ const (
 var (
 	paapiMaxRetryCount         = 3
 	cycleDays          float64 = 7
+	yearMonthRegex             = regexp.MustCompile(`\d{4}年\d{1,2}月`)
 )
 
 type Author struct {
@@ -234,7 +235,7 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 			return true
 		}
 	}
-	if regexp.MustCompile(`\d{4}年\d{1,2}月`).MatchString(i.ItemInfo.Title.DisplayValue) {
+	if yearMonthRegex.MatchString(i.ItemInfo.Title.DisplayValue) {
 		return true
 	}
 	if !isNameMatched(author, i) {

@@ -21,6 +21,7 @@ import (
 var (
 	paapiMaxRetryCount         = 5
 	cycleDays          float64 = 1
+	titleCleanRegex            = regexp.MustCompile(`[\(\)（）【】〔〕：:]|\s*[0-9０-９]`)
 )
 
 func main() {
@@ -198,7 +199,7 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.Kindl
 }
 
 func cleanTitle(title string) string {
-	return strings.TrimSpace(regexp.MustCompile(`[\(\)（）【】〔〕：:]|\s*[0-9０-９]`).Split(title, 2)[0])
+	return strings.TrimSpace(titleCleanRegex.Split(title, 2)[0])
 }
 
 func isSameKindleBook(paper utils.KindleBook, kindle entity.Item) bool {

@@ -48,7 +48,7 @@ var (
 )
 
 func Run(process func() error) {
-	if err := InitConfig(); err != nil {
+	if err := initConfig(); err != nil {
 		log.Println("Error loading configuration:", err)
 		return
 	}
@@ -68,34 +68,7 @@ func Run(process func() error) {
 	}
 }
 
-func getFilename() string {
-	const maxDepth = 50
-	pcs := make([]uintptr, maxDepth)
-	n := runtime.Callers(0, pcs)
-	frames := runtime.CallersFrames(pcs[:n])
-
-	var prevFrame *runtime.Frame
-
-	for {
-		frame, more := frames.Next()
-		baseFile := filepath.Base(frame.File)
-		if baseFile == "proc.go" {
-			if prevFrame != nil {
-				return prevFrame.File
-			}
-			return "unknown"
-		}
-
-		prevFrame = &frame
-		if !more {
-			break
-		}
-	}
-
-	return "unknown"
-}
-
-func InitConfig() error {
+func initConfig() error {
 	if IsLambda() {
 		once.Do(func() {
 			ctx := context.Background()
@@ -191,6 +164,33 @@ func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (
 	return params, nil
 }
 
+func getFilename() string {
+	const maxDepth = 50
+	pcs := make([]uintptr, maxDepth)
+	n := runtime.Callers(0, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+
+	var prevFrame *runtime.Frame
+
+	for {
+		frame, more := frames.Next()
+		baseFile := filepath.Base(frame.File)
+		if baseFile == "proc.go" {
+			if prevFrame != nil {
+				return prevFrame.File
+			}
+			return "unknown"
+		}
+
+		prevFrame = &frame
+		if !more {
+			break
+		}
+	}
+
+	return "unknown"
+}
+
 func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
@@ -214,20 +214,6 @@ func CreateClient() paapi5.Client {
 		EnvConfig.AmazonSecretKey,
 		paapi5.WithHttpClient(&http.Client{}),
 	)
-}
-
-func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
-	body, err := GetS3Object(cfg, objectKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var ASINs []KindleBook
-	if err := json.Unmarshal(body, &ASINs); err != nil {
-		return nil, err
-	}
-
-	return ASINs, nil
 }
 
 func GetS3Object(cfg aws.Config, objectKey string) ([]byte, error) {
@@ -258,6 +244,20 @@ func PutS3Object(cfg aws.Config, body, objectKey string) error {
 		ContentType: aws.String("application/json"),
 	})
 	return err
+}
+
+func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
+	body, err := GetS3Object(cfg, objectKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var ASINs []KindleBook
+	if err := json.Unmarshal(body, &ASINs); err != nil {
+		return nil, err
+	}
+
+	return ASINs, nil
 }
 
 func UniqueASINs(slice []KindleBook) []KindleBook {
@@ -296,6 +296,43 @@ func SortByReleaseDate(books []KindleBook) {
 		}
 		return false
 	})
+}
+
+func GetBook(ASIN string, slice []KindleBook) KindleBook {
+	for _, s := range slice {
+		if ASIN == s.ASIN {
+			return s
+		}
+	}
+	return KindleBook{}
+}
+
+func AppendFallbackBooks(asins []string, original []KindleBook) []KindleBook {
+	var result []KindleBook
+	for _, asin := range asins {
+		result = append(result, GetBook(asin, original))
+	}
+	return result
+}
+
+func MakeBook(item entity.Item, maxPrice float64) KindleBook {
+	book := KindleBook{
+		ASIN:         item.ASIN,
+		Title:        item.ItemInfo.Title.DisplayValue,
+		CurrentPrice: (*item.Offers.Listings)[0].Price.Amount,
+		MaxPrice:     (*item.Offers.Listings)[0].Price.Amount,
+		URL:          item.DetailPageURL,
+	}
+
+	if item.ItemInfo.ProductInfo.ReleaseDate != nil {
+		book.ReleaseDate = item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
+	}
+
+	if maxPrice > 0 {
+		book.MaxPrice = maxPrice
+	}
+
+	return book
 }
 
 func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity.Response, error) {
@@ -415,15 +452,6 @@ func findStatusCode(err error) int {
 	return 0
 }
 
-func PrintPrettyJSON(v any) {
-	prettyJSON, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return
-	}
-
-	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
-}
-
 func FetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]KindleBook, error) {
 	books, err := FetchASINs(cfg, EnvConfig.S3NotifiedObjectKey)
 	if err != nil {
@@ -479,6 +507,56 @@ func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	}
 
 	return PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), objectKey)
+}
+
+func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey string) (int, bool, error) {
+	if itemCount == 0 {
+		return 0, false, fmt.Errorf("no items available")
+	}
+
+	index := getIndexByTime(itemCount, cycleDays)
+	format := GetCountFormat(itemCount)
+
+	prevIndexBytes, err := GetS3Object(cfg, prevIndexKey)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to fetch prev_index: %w", err)
+	}
+	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
+
+	if prevIndex == index {
+		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s)", format, format)
+		log.Printf(skipLogFormat, index+1, itemCount)
+		return index, false, nil
+	}
+
+	return index, true, nil
+}
+
+func getIndexByTime(itemCount int, cycleDays float64) int {
+	if itemCount <= 0 {
+		return 0
+	}
+
+	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
+	sec := time.Now().Unix() % secondsPerCycle
+	return int(sec * int64(itemCount) / secondsPerCycle)
+}
+
+func GetCountFormat(itemCount int) string {
+	digits := len(fmt.Sprintf("%d", itemCount))
+	return fmt.Sprintf("%%0%dd", digits+1)
+}
+
+func LogAndNotify(message string, sendToSlack bool) {
+	log.Println(message)
+	if sendToSlack {
+		if _, err := TootMastodon(message); err != nil {
+			AlertToSlack(fmt.Errorf("failed to post to Mastodon: %v", err), false)
+		}
+	}
+	if err := PostToSlack(message, EnvConfig.SlackNoticeChannel); err != nil {
+		AlertToSlack(fmt.Errorf("failed to post to Slack: %v", err), false)
+	}
 }
 
 func AlertToSlack(err error, withMention bool) error {
@@ -544,55 +622,6 @@ func UpdateGist(gistID, filename, markdown string) error {
 	return nil
 }
 
-func AppendFallbackBooks(asins []string, original []KindleBook) []KindleBook {
-	var result []KindleBook
-	for _, asin := range asins {
-		result = append(result, GetBook(asin, original))
-	}
-	return result
-}
-
-func GetBook(ASIN string, slice []KindleBook) KindleBook {
-	for _, s := range slice {
-		if ASIN == s.ASIN {
-			return s
-		}
-	}
-	return KindleBook{}
-}
-
-func MakeBook(item entity.Item, maxPrice float64) KindleBook {
-	book := KindleBook{
-		ASIN:         item.ASIN,
-		Title:        item.ItemInfo.Title.DisplayValue,
-		CurrentPrice: (*item.Offers.Listings)[0].Price.Amount,
-		MaxPrice:     (*item.Offers.Listings)[0].Price.Amount,
-		URL:          item.DetailPageURL,
-	}
-
-	if item.ItemInfo.ProductInfo.ReleaseDate != nil {
-		book.ReleaseDate = item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue
-	}
-
-	if maxPrice > 0 {
-		book.MaxPrice = maxPrice
-	}
-
-	return book
-}
-
-func LogAndNotify(message string, sendToSlack bool) {
-	log.Println(message)
-	if sendToSlack {
-		if _, err := TootMastodon(message); err != nil {
-			AlertToSlack(fmt.Errorf("failed to post to Mastodon: %v", err), false)
-		}
-	}
-	if err := PostToSlack(message, EnvConfig.SlackNoticeChannel); err != nil {
-		AlertToSlack(fmt.Errorf("failed to post to Slack: %v", err), false)
-	}
-}
-
 func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	cw := cloudwatch.NewFromConfig(cfg)
 	_, err := cw.PutMetricData(context.TODO(), &cloudwatch.PutMetricDataInput{
@@ -609,40 +638,11 @@ func PutMetric(cfg aws.Config, namespace, metricName string) error {
 	return err
 }
 
-func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey string) (int, bool, error) {
-	if itemCount == 0 {
-		return 0, false, fmt.Errorf("no items available")
-	}
-
-	index := getIndexByTime(itemCount, cycleDays)
-	format := GetCountFormat(itemCount)
-
-	prevIndexBytes, err := GetS3Object(cfg, prevIndexKey)
+func PrintPrettyJSON(v any) {
+	prettyJSON, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to fetch prev_index: %w", err)
-	}
-	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
-
-	if prevIndex == index {
-		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s)", format, format)
-		log.Printf(skipLogFormat, index+1, itemCount)
-		return index, false, nil
+		return
 	}
 
-	return index, true, nil
-}
-
-func getIndexByTime(itemCount int, cycleDays float64) int {
-	if itemCount <= 0 {
-		return 0
-	}
-
-	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
-	sec := time.Now().Unix() % secondsPerCycle
-	return int(sec * int64(itemCount) / secondsPerCycle)
-}
-
-func GetCountFormat(itemCount int) string {
-	digits := len(fmt.Sprintf("%d", itemCount))
-	return fmt.Sprintf("%%0%dd", digits+1)
+	fmt.Println(strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"))
 }
