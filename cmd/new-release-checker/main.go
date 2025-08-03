@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -132,19 +133,11 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 	items, err := searchAuthorBooks(cfg, client, author.Name)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
-		return fmt.Errorf(
-			"%04d / %04d: %s\n%s\n%v",
-			index+1,
-			len(authors),
-			author.Name,
-			author.URL,
-			err,
-		)
+		return formatProcessError(index, authors, err)
 	}
 
 	if len(items) == 0 {
-		utils.LogAndNotify(fmt.Sprintf("検索結果が見つかりませんでした: %s\n%s", author.Name, author.URL), false)
-		return nil
+		return formatProcessError(index, authors, errors.New("no search results found"))
 	}
 
 	latest := author.LatestReleaseDate
@@ -213,6 +206,17 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 	}
 
 	return res.SearchResult.Items, nil
+}
+
+func formatProcessError(index int, authors []Author, err error) error {
+	return fmt.Errorf(
+		"%04d / %04d: %s\n%s\n%v",
+		index+1,
+		len(authors),
+		authors[index].Name,
+		authors[index].URL,
+		err,
+	)
 }
 
 func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.KindleBook, ngWords []string, now time.Time) bool {

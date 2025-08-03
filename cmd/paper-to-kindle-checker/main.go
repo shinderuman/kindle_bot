@@ -109,7 +109,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		items, err := utils.GetItems(cfg, client, []string{book.ASIN})
 		if err != nil {
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-			return formatProcessError("getItems", index, books, book, err)
+			return formatProcessError("getItems", index, books, err)
 		}
 
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
@@ -124,7 +124,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	kindleItem, err := searchKindleEdition(cfg, client, *book)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
-		return formatProcessError("searchKindleEdition", index, books, book, err)
+		return formatProcessError("searchKindleEdition", index, books, err)
 	}
 	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APISuccess")
 
@@ -161,13 +161,13 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	return nil
 }
 
-func formatProcessError(operation string, index int, books []utils.KindleBook, book *utils.KindleBook, err error) error {
+func formatProcessError(operation string, index int, books []utils.KindleBook, err error) error {
 	return fmt.Errorf(
 		"%s: %03d / %03d\nhttps://www.amazon.co.jp/dp/%s\n%v",
 		operation,
 		index+1,
 		len(books),
-		book.ASIN,
+		books[index].ASIN,
 		err,
 	)
 }
