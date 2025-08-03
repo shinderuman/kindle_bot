@@ -46,23 +46,45 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
      * `/myapp/plain/S3_BUCKET_NAME`
      * `/myapp/secure/AMAZON_ACCESS_KEY`
 
-4. **Build and deploy each Lambda function:**
+4. **Configure deployment settings:**
 
    ```bash
-   # Build paper-to-kindle-checker
-   GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
-   zip paper-to-kindle-checker.zip paper-to-kindle-checker
-   aws lambda update-function-code --function-name paper-to-kindle-checker --zip-file fileb://paper-to-kindle-checker.zip
+   # Copy the deployment configuration template
+   cp .env.example .env
+   
+   # Edit .env with your AWS profile and Lambda function names
+   ```
 
-   # Build sale-checker
-   GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
-   zip sale-checker.zip sale-checker
-   aws lambda update-function-code --function-name sale-checker --zip-file fileb://sale-checker.zip
+5. **Build and deploy Lambda functions:**
 
-   # Build new-release-checker
-   GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
-   zip new-release-checker.zip new-release-checker
-   aws lambda update-function-code --function-name new-release-checker --zip-file fileb://new-release-checker.zip
+   ```bash
+   # Deploy individual functions
+   ./scripts/deploy.sh paper-to-kindle-checker
+   ./scripts/deploy.sh new-release-checker
+   ./scripts/deploy.sh sale-checker
+   
+   # Deploy all functions at once
+   ./scripts/deploy.sh all
+   
+   # Build only (without deployment)
+   ./scripts/deploy.sh paper-to-kindle-checker -b
+   ./scripts/deploy.sh new-release-checker --build-only
+   ```
+
+6. **Enable tab completion (optional):**
+
+   ```bash
+   # For zsh users
+   source scripts/deploy-completion.zsh
+   echo "source $(pwd)/scripts/deploy-completion.zsh" >> ~/.zshrc
+   
+   # For bash users
+   source scripts/deploy-completion.bash
+   echo "source $(pwd)/scripts/deploy-completion.bash" >> ~/.bashrc
+   
+   # Now you can use tab completion:
+   # ./scripts/deploy.sh <TAB> -> shows: paper-to-kindle-checker, new-release-checker, sale-checker, all
+   # ./scripts/deploy.sh paper-to-kindle-checker <TAB> -> shows: -b, --build-only, -h, --help
    ```
 
 5. **Configure CloudWatch schedule/event triggers as needed.**
@@ -78,9 +100,14 @@ kindle_bot/
 │   │   └── main.go
 │   └── sale-checker/                      # Sale monitoring
 │       └── main.go
+├── scripts/                               # Deployment and utility scripts
+│   ├── deploy.sh                          # Lambda deployment script
+│   ├── deploy-completion.bash             # Bash completion for deploy.sh
+│   └── deploy-completion.zsh              # Zsh completion for deploy.sh
 ├── utils/                                 # Shared utility functions
 │   ├── models.go                          # Data models
 │   └── utils.go                           # Common utilities
+├── .env.example                           # Environment configuration template
 └── config.json.example                    # Configuration template
 ```
 
@@ -171,23 +198,45 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
      * `/myapp/plain/S3_BUCKET_NAME`
      * `/myapp/secure/AMAZON_ACCESS_KEY`
 
-4. **各 Lambda 関数をビルドしてデプロイ**
+4. **デプロイ設定を構成**
 
    ```bash
-   # paper-to-kindle-checker をビルド
-   GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
-   zip paper-to-kindle-checker.zip paper-to-kindle-checker
-   aws lambda update-function-code --function-name paper-to-kindle-checker --zip-file fileb://paper-to-kindle-checker.zip
+   # デプロイ設定のテンプレートをコピー
+   cp .env.example .env
+   
+   # .env を AWS プロファイルと Lambda 関数名で編集
+   ```
 
-   # sale-checker をビルド
-   GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
-   zip sale-checker.zip sale-checker
-   aws lambda update-function-code --function-name sale-checker --zip-file fileb://sale-checker.zip
+5. **Lambda 関数をビルドしてデプロイ**
 
-   # new-release-checker をビルド
-   GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
-   zip new-release-checker.zip new-release-checker
-   aws lambda update-function-code --function-name new-release-checker --zip-file fileb://new-release-checker.zip
+   ```bash
+   # 個別の関数をデプロイ
+   ./scripts/deploy.sh paper-to-kindle-checker
+   ./scripts/deploy.sh new-release-checker
+   ./scripts/deploy.sh sale-checker
+   
+   # 全関数を一括デプロイ
+   ./scripts/deploy.sh all
+   
+   # ビルドのみ（デプロイなし）
+   ./scripts/deploy.sh paper-to-kindle-checker -b
+   ./scripts/deploy.sh new-release-checker --build-only
+   ```
+
+6. **タブ補完を有効にする（オプション）:**
+
+   ```bash
+   # zshユーザーの場合
+   source scripts/deploy-completion.zsh
+   echo "source $(pwd)/scripts/deploy-completion.zsh" >> ~/.zshrc
+   
+   # bashユーザーの場合
+   source scripts/deploy-completion.bash
+   echo "source $(pwd)/scripts/deploy-completion.bash" >> ~/.bashrc
+   
+   # これでタブ補完が使用可能:
+   # ./scripts/deploy.sh <TAB> -> paper-to-kindle-checker, new-release-checker, sale-checker, all が表示
+   # ./scripts/deploy.sh paper-to-kindle-checker <TAB> -> -b, --build-only, -h, --help が表示
    ```
 
 5. **必要に応じて CloudWatch イベントを設定してください**
@@ -203,9 +252,14 @@ kindle_bot/
 │   │   └── main.go
 │   └── sale-checker/                      # セール監視
 │       └── main.go
+├── scripts/                               # デプロイ・ユーティリティスクリプト
+│   ├── deploy.sh                          # Lambda デプロイスクリプト
+│   ├── deploy-completion.bash             # deploy.sh 用 Bash 補完
+│   └── deploy-completion.zsh              # deploy.sh 用 Zsh 補完
 ├── utils/                                 # 共通ユーティリティ
 │   ├── models.go                          # データモデル
 │   └── utils.go                           # 共通機能
+├── .env.example                           # 環境設定テンプレート
 └── config.json.example                    # 設定ファイルのテンプレート
 ```
 
