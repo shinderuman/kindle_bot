@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	paapi5 "github.com/goark/pa-api"
@@ -69,15 +70,30 @@ func process() error {
 func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) ([]utils.KindleBook, error) {
 	var result []utils.KindleBook
 	var successfulRequests int
-	var totalRequests int
+	var processedCount int
 
-	chunks := utils.ChunkedASINs(utils.UniqueASINs(original), 10)
-	totalRequests = len(chunks)
+	uniqueBooks := utils.UniqueASINs(original)
+	totalBooks := len(uniqueBooks)
+	chunks := utils.ChunkedASINs(uniqueBooks, 10)
+
+	logBookProcessing := func(title, url string, releaseDate time.Time, suffix string) {
+		processedCount++
+		releaseDateStr := "N/A"
+		if !releaseDate.IsZero() {
+			releaseDateStr = releaseDate.Format("2006-01-02")
+		}
+		log.Printf("%04d/%04d: %s | %s | %s %s", processedCount, totalBooks, releaseDateStr, title, url, suffix)
+	}
 
 	for _, chunk := range chunks {
 		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
-			result = append(result, utils.AppendFallbackBooks(chunk, original)...)
+			fallbackBooks := utils.AppendFallbackBooks(chunk, original)
+			for _, book := range fallbackBooks {
+				logBookProcessing(book.Title, book.URL, book.ReleaseDate.Time, "[API Error - using cached data]")
+				result = append(result, book)
+			}
+
 			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
 			// utils.AlertToSlack(fmt.Errorf("error fetching item details: %v", err), false)
 			continue
@@ -86,17 +102,17 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		successfulRequests++
 		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
-			log.Println(item.ItemInfo.Title.DisplayValue)
+			book := utils.GetBook(item.ASIN, original)
+			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "")
 
 			if !isKindle(item) {
 				utils.AlertToSlack(fmt.Errorf(
-					"The item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+					"the item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
 					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
 				), false)
 				continue
 			}
 
-			book := utils.GetBook(item.ASIN, original)
 			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
 			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
@@ -107,9 +123,8 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		}
 	}
 
-	// If all PA API requests failed, return error
-	if successfulRequests == 0 && totalRequests > 0 {
-		return result, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, totalRequests)
+	if successfulRequests == 0 {
+		return result, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, len(chunks))
 	}
 
 	return result, nil
