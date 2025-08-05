@@ -37,14 +37,12 @@ import (
 	"github.com/slack-go/slack"
 )
 
-const (
-	GetItemsPAAPIRetryCount = 3
-)
-
 var (
-	EnvConfig     Config
-	configInitErr error
-	once          sync.Once
+	EnvConfig Config
+
+	getItemsPAAPIRetryCount = 3
+	configInitErr           error
+	once                    sync.Once
 )
 
 func Run(process func() error) {
@@ -123,7 +121,17 @@ func initConfig() error {
 		}
 	}
 
+	initEnvironmentVariables()
+
 	return configInitErr
+}
+
+func initEnvironmentVariables() {
+	if envRetryCount := os.Getenv("GET_ITEMS_PAAPI_RETRY_COUNT"); envRetryCount != "" {
+		if count, err := strconv.Atoi(envRetryCount); err == nil && count > 0 {
+			getItemsPAAPIRetryCount = count
+		}
+	}
 }
 
 func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (map[string]string, error) {
@@ -341,7 +349,7 @@ func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(cfg, client, q, GetItemsPAAPIRetryCount)
+	body, err := requestWithBackoff(cfg, client, q, getItemsPAAPIRetryCount)
 	if err != nil {
 		return nil, err
 	}
