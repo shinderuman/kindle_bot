@@ -76,13 +76,13 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 	totalBooks := len(uniqueBooks)
 	chunks := utils.ChunkedASINs(uniqueBooks, 10)
 
-	logBookProcessing := func(title, url string, releaseDate time.Time, suffix string) {
+	logBookProcessing := func(title, url string, releaseDate time.Time, prefix string) {
 		processedCount++
 		releaseDateStr := "N/A"
 		if !releaseDate.IsZero() {
 			releaseDateStr = releaseDate.Format("2006-01-02")
 		}
-		log.Printf("%04d/%04d: %s | %s | %s %s", processedCount, totalBooks, releaseDateStr, title, url, suffix)
+		log.Printf("%s %04d/%04d: %s | %s | %s", prefix, processedCount, totalBooks, releaseDateStr, title, url)
 	}
 
 	for _, chunk := range chunks {
@@ -90,7 +90,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		if err != nil {
 			fallbackBooks := utils.AppendFallbackBooks(chunk, original)
 			for _, book := range fallbackBooks {
-				logBookProcessing(book.Title, book.URL, book.ReleaseDate.Time, "[API Error - using cached data]")
+				logBookProcessing(book.Title, book.URL, book.ReleaseDate.Time, "[Failure]")
 				result = append(result, book)
 			}
 
@@ -103,7 +103,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
 			book := utils.GetBook(item.ASIN, original)
-			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "")
+			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "[Success]")
 
 			if !isKindle(item) {
 				utils.AlertToSlack(fmt.Errorf(
