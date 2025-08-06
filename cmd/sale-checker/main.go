@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +23,10 @@ const (
 	gistFilename = "わいのセールになってほしい本.md"
 )
 
+var (
+	executionIntervalMinutes = 60
+)
+
 func main() {
 	utils.Run(process)
 }
@@ -29,6 +36,8 @@ func process() error {
 	if err != nil {
 		return err
 	}
+
+	initEnvironmentVariables()
 
 	client := utils.CreateClient()
 
@@ -42,10 +51,15 @@ func process() error {
 		return fmt.Errorf("failed to fetch upcoming ASINs: %w", err)
 	}
 
-	newBooks, err := processASINs(cfg, client, append(originalBooks, upcomingBooks...))
+	allBooks := utils.UniqueASINs(append(originalBooks, upcomingBooks...))
+	segmentBooks := getDataSegment(allBooks, time.Now())
+
+	processedMap, err := processASINs(cfg, client, segmentBooks, len(utils.UniqueASINs(allBooks)))
 	if err != nil {
 		return fmt.Errorf("PA API processing failed: %v", err)
 	}
+
+	newBooks := getUnprocessedBooks(allBooks, processedMap)
 
 	utils.SortByReleaseDate(newBooks)
 	if reflect.DeepEqual(originalBooks, newBooks) {
@@ -67,14 +81,85 @@ func process() error {
 	return nil
 }
 
-func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleBook) ([]utils.KindleBook, error) {
+func initEnvironmentVariables() {
+	if envInterval := os.Getenv("SALE_CHECKER_INTERVAL_MINUTES"); envInterval != "" {
+		if interval, err := strconv.Atoi(envInterval); err == nil && interval > 0 {
+			executionIntervalMinutes = interval
+		}
+	}
+}
+
+func getDataSegment(books []utils.KindleBook, now time.Time) []utils.KindleBook {
+	if len(books) == 0 {
+		return books
+	}
+
+	cycleMinutes := executionIntervalMinutes * 4
+	minutesInCycle := int(now.Unix()/60) % cycleMinutes
+	executionIndex := minutesInCycle / executionIntervalMinutes // 0, 1, 2, 3
+
+	totalItems := len(books)
+	splitPoint := (totalItems / 2 / 10) * 10
+
+	var segment []utils.KindleBook
+
+	var executionDescription string
+
+	switch executionIndex {
+	case 0: // 1st execution: first half, normal sort
+		segment = books[:splitPoint]
+		sort.Slice(segment, func(i, j int) bool {
+			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
+		})
+		executionDescription = "first half + normal sort"
+	case 1: // 2nd execution: second half, normal sort
+		segment = books[splitPoint:]
+		sort.Slice(segment, func(i, j int) bool {
+			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
+		})
+		executionDescription = "second half + normal sort"
+	case 2: // 3rd execution: first half, reverse sort
+		segment = books[:splitPoint]
+		sort.Slice(segment, func(i, j int) bool {
+			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
+		})
+		executionDescription = "first half + reverse sort"
+	case 3: // 4th execution: second half, reverse sort
+		segment = books[splitPoint:]
+		sort.Slice(segment, func(i, j int) bool {
+			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
+		})
+		executionDescription = "second half + reverse sort"
+	}
+
+	log.Printf("Execution cycle: %d/%d (interval: %dmin), %s, processing %d books",
+		executionIndex+1, 4, executionIntervalMinutes, executionDescription, len(segment))
+
+	return segment
+}
+
+func getUnprocessedBooks(allBooks []utils.KindleBook, processedMap map[string]*utils.KindleBook) []utils.KindleBook {
 	var result []utils.KindleBook
+	for _, book := range allBooks {
+		if processedBook, exists := processedMap[book.ASIN]; exists {
+			if processedBook == nil {
+				continue
+			}
+			result = append(result, *processedBook)
+		} else {
+			result = append(result, book)
+		}
+	}
+
+	return result
+}
+
+func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.KindleBook, totalBooksCount int) (map[string]*utils.KindleBook, error) {
+	processedStatus := make(map[string]*utils.KindleBook)
 	var successfulRequests int
 	var processedCount int
 
-	uniqueBooks := utils.UniqueASINs(original)
-	totalBooks := len(uniqueBooks)
-	chunks := utils.ChunkedASINs(uniqueBooks, 10)
+	chunks := utils.ChunkedASINs(segmentBooks, 10)
 
 	logBookProcessing := func(title, url string, releaseDate time.Time, prefix string) {
 		processedCount++
@@ -82,16 +167,16 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		if !releaseDate.IsZero() {
 			releaseDateStr = releaseDate.Format("2006-01-02")
 		}
-		log.Printf("%s %04d/%04d: %s | %s | %s", prefix, processedCount, totalBooks, releaseDateStr, title, url)
+		log.Printf("%s %04d/%04d: %s | %s | %s", prefix, processedCount, totalBooksCount, releaseDateStr, title, url)
 	}
 
 	for _, chunk := range chunks {
 		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
-			fallbackBooks := utils.AppendFallbackBooks(chunk, original)
+			fallbackBooks := utils.AppendFallbackBooks(chunk, segmentBooks)
 			for _, book := range fallbackBooks {
 				logBookProcessing(book.Title, book.URL, book.ReleaseDate.Time, "[Failure]")
-				result = append(result, book)
+				processedStatus[book.ASIN] = &book
 			}
 
 			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
@@ -102,7 +187,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 		successfulRequests++
 		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 		for _, item := range resp.ItemsResult.Items {
-			book := utils.GetBook(item.ASIN, original)
+			book := utils.GetBook(item.ASIN, segmentBooks)
 			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "[Success]")
 
 			if !isKindle(item) {
@@ -117,17 +202,22 @@ func processASINs(cfg aws.Config, client paapi5.Client, original []utils.KindleB
 
 			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
 				utils.LogAndNotify(formatSlackMessage(item, conditions), true)
+				processedStatus[item.ASIN] = nil
 			} else {
-				result = append(result, utils.MakeBook(item, maxPrice))
+				book := utils.MakeBook(item, maxPrice)
+				processedStatus[book.ASIN] = &book
 			}
 		}
+
+		log.Printf("Sleeping 60 seconds before next chunk...")
+		time.Sleep(60 * time.Second)
 	}
 
 	if successfulRequests == 0 {
-		return result, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, len(chunks))
+		return processedStatus, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, len(chunks))
 	}
 
-	return result, nil
+	return processedStatus, nil
 }
 
 func isKindle(item entity.Item) bool {
