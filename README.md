@@ -111,6 +111,70 @@ kindle_bot/
 └── config.json.example                    # Configuration template
 ```
 
+## Execution Intervals and Environment Variables
+
+### Recommended Execution Intervals
+
+| Program | CloudWatch Interval | Internal Cycle | Purpose |
+|---------|-------------------|----------------|---------|
+| `new-release-checker` | 1 minute | 7 days (weekly) | Check for new releases from authors |
+| `paper-to-kindle-checker` | 1 minute | 1 day (daily) | Check if paper books have Kindle editions |
+| `sale-checker` | 30-120 minutes | 4-cycle segmentation | Monitor Kindle book sales with data segmentation |
+
+### Environment Variables
+
+Each program supports environment variables to customize execution behavior:
+
+#### new-release-checker
+- `NEW_RELEASE_PAAPI_RETRY_COUNT` (default: 3) - SearchItems API retry count for author searches
+- `NEW_RELEASE_CYCLE_DAYS` (default: 7.0) - Cycle duration in days for author processing
+
+#### paper-to-kindle-checker  
+- `PAPER_TO_KINDLE_PAAPI_RETRY_COUNT` (default: 5) - SearchItems API retry count for Kindle edition searches
+- `PAPER_TO_KINDLE_CYCLE_DAYS` (default: 1.0) - Cycle duration in days for book processing
+
+#### sale-checker
+- `SALE_CHECKER_INTERVAL_MINUTES` (default: 60) - Execution interval in minutes for data segmentation
+  - Accepts any positive integer (e.g., 30, 60, 120, 240, 360 minutes)
+  - Determines 4-cycle processing: first/second half with normal/reverse sorting
+  - Must match your CloudWatch Events schedule
+
+#### Global (utils package)
+- `GET_ITEMS_PAAPI_RETRY_COUNT` (default: 3) - PA-API retry count for GetItems requests
+
+### Data Segmentation (sale-checker)
+
+The sale-checker implements time-based data segmentation to reduce API load and prevent rate limiting:
+
+- **4-Cycle Processing**: Each complete cycle processes all data twice
+- **Execution Pattern**:
+  1. First half + normal sort (oldest to newest)
+  2. Second half + normal sort  
+  3. First half + reverse sort (newest to oldest)
+  4. Second half + reverse sort
+
+- **Data Splitting**: Books are split at 10-item boundaries for optimal PA-API chunk processing
+- **API Load Reduction**: 10-second sleep between each chunk to prevent rate limiting
+
+**Example Configurations**:
+```bash
+# 30-minute intervals (2-hour complete cycle)
+SALE_CHECKER_INTERVAL_MINUTES=30
+# CloudWatch: rate(30 minutes)
+
+# 60-minute intervals (4-hour complete cycle) 
+SALE_CHECKER_INTERVAL_MINUTES=60
+# CloudWatch: rate(60 minutes)
+
+# 120-minute intervals (8-hour complete cycle)
+SALE_CHECKER_INTERVAL_MINUTES=120  
+# CloudWatch: rate(120 minutes)
+
+# 240-minute intervals (16-hour complete cycle)
+SALE_CHECKER_INTERVAL_MINUTES=240
+# CloudWatch: rate(240 minutes)
+```
+
 ## Usage
 
 ### Local Development
@@ -130,7 +194,19 @@ go run ./cmd/sale-checker
 
 ### Building
 
-Build all applications:
+Build applications using the deployment script (recommended):
+
+```bash
+# Build individual functions for Lambda deployment
+./scripts/deploy.sh paper-to-kindle-checker --build-only
+./scripts/deploy.sh new-release-checker -b
+./scripts/deploy.sh sale-checker --build-only
+
+# Build all functions at once
+./scripts/deploy.sh all --build-only
+```
+
+Or build manually:
 
 ```bash
 # Build for local use
@@ -263,6 +339,70 @@ kindle_bot/
 └── config.json.example                    # 設定ファイルのテンプレート
 ```
 
+## 実行間隔と環境変数
+
+### 推奨実行間隔
+
+| プログラム | CloudWatch間隔 | 内部サイクル | 目的 |
+|-----------|---------------|-------------|------|
+| `new-release-checker` | 1分 | 7日（週次） | 著者の新刊チェック |
+| `paper-to-kindle-checker` | 1分 | 1日（日次） | 紙書籍のKindle版チェック |
+| `sale-checker` | 30-120分 | 4サイクル分割 | Kindle本のセール監視（データ分割処理） |
+
+### 環境変数
+
+各プログラムは環境変数で実行動作をカスタマイズできます：
+
+#### new-release-checker
+- `NEW_RELEASE_PAAPI_RETRY_COUNT` (デフォルト: 3) - 著者検索時のSearchItems APIリトライ回数
+- `NEW_RELEASE_CYCLE_DAYS` (デフォルト: 7.0) - 著者処理のサイクル日数
+
+#### paper-to-kindle-checker  
+- `PAPER_TO_KINDLE_PAAPI_RETRY_COUNT` (デフォルト: 5) - Kindle版検索時のSearchItems APIリトライ回数
+- `PAPER_TO_KINDLE_CYCLE_DAYS` (デフォルト: 1.0) - 書籍処理のサイクル日数
+
+#### sale-checker
+- `SALE_CHECKER_INTERVAL_MINUTES` (デフォルト: 60) - データ分割処理の実行間隔（分）
+  - 任意の正の整数を指定可能（例: 30, 60, 120, 240, 360分）
+  - 4サイクル処理を決定: 前半/後半 × 順/逆ソート
+  - CloudWatch Eventsのスケジュールと一致させる必要があります
+
+#### 全体共通 (utilsパッケージ)
+- `GET_ITEMS_PAAPI_RETRY_COUNT` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
+
+### データ分割処理 (sale-checker)
+
+sale-checkerは時間ベースのデータ分割を実装し、API負荷を軽減してレート制限を防ぎます：
+
+- **4サイクル処理**: 1つの完全サイクルで全データを2回処理
+- **実行パターン**:
+  1. 前半 + 順ソート（古い順）
+  2. 後半 + 順ソート  
+  3. 前半 + 逆ソート（新しい順）
+  4. 後半 + 逆ソート
+
+- **データ分割**: PA-APIチャンク処理に最適化された10件単位での分割
+- **API負荷軽減**: 各チャンク間に10秒のスリープでレート制限を防止
+
+**設定例**:
+```bash
+# 30分間隔（2時間で完全サイクル）
+SALE_CHECKER_INTERVAL_MINUTES=30
+# CloudWatch: rate(30 minutes)
+
+# 60分間隔（4時間で完全サイクル） 
+SALE_CHECKER_INTERVAL_MINUTES=60
+# CloudWatch: rate(60 minutes)
+
+# 120分間隔（8時間で完全サイクル）
+SALE_CHECKER_INTERVAL_MINUTES=120  
+# CloudWatch: rate(120 minutes)
+
+# 240分間隔（16時間で完全サイクル）
+SALE_CHECKER_INTERVAL_MINUTES=240
+# CloudWatch: rate(240 minutes)
+```
+
 ## 使用方法
 
 ### ローカル開発
@@ -282,7 +422,19 @@ go run ./cmd/sale-checker
 
 ### ビルド
 
-全アプリケーションをビルド：
+デプロイスクリプトを使用したビルド（推奨）：
+
+```bash
+# 個別の関数をLambdaデプロイ用にビルド
+./scripts/deploy.sh paper-to-kindle-checker --build-only
+./scripts/deploy.sh new-release-checker -b
+./scripts/deploy.sh sale-checker --build-only
+
+# 全関数を一括ビルド
+./scripts/deploy.sh all --build-only
+```
+
+または手動でビルド：
 
 ```bash
 # ローカル用ビルド
