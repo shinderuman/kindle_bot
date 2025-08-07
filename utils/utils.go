@@ -343,13 +343,13 @@ func MakeBook(item entity.Item, maxPrice float64) KindleBook {
 	return book
 }
 
-func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string) (*entity.Response, error) {
+func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string, initialRetrySeconds int) (*entity.Response, error) {
 	q := query.NewGetItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
 		ASINs(asinChunk).
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(cfg, client, q, getItemsPAAPIRetryCount)
+	body, err := requestWithBackoff(cfg, client, q, getItemsPAAPIRetryCount, initialRetrySeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +380,7 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 }
 
 func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
-	body, err := requestWithBackoff(cfg, client, q, maxRetryCount)
+	body, err := requestWithBackoff(cfg, client, q, maxRetryCount, 2)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +393,7 @@ func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, max
 	return res, nil
 }
 
-func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q T, maxRetryCount int) ([]byte, error) {
+func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q T, maxRetryCount int, initialRetrySeconds int) ([]byte, error) {
 	const maxWait = 30 * time.Second
 	for i := range maxRetryCount {
 		body, err := client.Request(q)
@@ -410,9 +410,8 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 				return nil, fmt.Errorf("max retries reached, last error: %w", err)
 			}
 
-			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * 2
+			waitTime := time.Duration(math.Pow(2, float64(i))) * time.Second * time.Duration(initialRetrySeconds)
 			waitTime += time.Duration(rand.Intn(500)) * time.Millisecond
-
 			if waitTime > maxWait {
 				waitTime = maxWait
 			}

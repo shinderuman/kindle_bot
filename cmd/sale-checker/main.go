@@ -159,6 +159,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 	var successfulRequests int
 	var processedCount int
 
+	jst, _ := time.LoadLocation("Asia/Tokyo")
 	chunks := utils.ChunkedASINs(segmentBooks, 10)
 
 	logBookProcessing := func(title, url string, releaseDate time.Time, prefix string) {
@@ -175,7 +176,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 			log.Printf("Sleeping 60 seconds before next chunk...")
 			time.Sleep(60 * time.Second)
 		}
-		resp, err := utils.GetItems(cfg, client, chunk)
+		resp, err := utils.GetItems(cfg, client, chunk, 30)
 		if err != nil {
 			fallbackBooks := utils.AppendFallbackBooks(chunk, segmentBooks)
 			for _, book := range fallbackBooks {
@@ -201,7 +202,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 				processedStatus[item.ASIN] = nil
 			} else {
 				book := utils.MakeBook(item, maxPrice)
-				book.LastPAAPISuccessDate = time.Now()
+				book.LastPAAPISuccessDate = time.Now().In(jst)
 				processedStatus[book.ASIN] = &book
 			}
 		}
