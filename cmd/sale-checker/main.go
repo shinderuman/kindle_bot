@@ -106,30 +106,30 @@ func getDataSegment(books []utils.KindleBook, now time.Time) []utils.KindleBook 
 	var executionDescription string
 
 	switch executionIndex {
-	case 0: // 1st execution: first half, normal sort
+	case 0: // 1st execution: first half, sort by PA API success date
 		segment = books[:splitPoint]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
+			return segment[i].LastPAAPISuccessDate.Before(segment[j].LastPAAPISuccessDate)
 		})
-		executionDescription = "first half + normal sort"
-	case 1: // 2nd execution: second half, normal sort
+		executionDescription = "first half + PA API success date sort"
+	case 1: // 2nd execution: second half, sort by PA API success date
 		segment = books[splitPoint:]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
+			return segment[i].LastPAAPISuccessDate.Before(segment[j].LastPAAPISuccessDate)
 		})
-		executionDescription = "second half + normal sort"
-	case 2: // 3rd execution: first half, reverse sort
+		executionDescription = "second half + PA API success date sort"
+	case 2: // 3rd execution: first half, reverse PA API success date sort
 		segment = books[:splitPoint]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
+			return segment[i].LastPAAPISuccessDate.After(segment[j].LastPAAPISuccessDate)
 		})
-		executionDescription = "first half + reverse sort"
-	case 3: // 4th execution: second half, reverse sort
+		executionDescription = "first half + reverse PA API success date sort"
+	case 3: // 4th execution: second half, reverse PA API success date sort
 		segment = books[splitPoint:]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
+			return segment[i].LastPAAPISuccessDate.After(segment[j].LastPAAPISuccessDate)
 		})
-		executionDescription = "second half + reverse sort"
+		executionDescription = "second half + reverse PA API success date sort"
 	}
 
 	log.Printf("Execution cycle: %d/%d (interval: %dmin), %s, processing %d books",
@@ -205,6 +205,7 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 				processedStatus[item.ASIN] = nil
 			} else {
 				book := utils.MakeBook(item, maxPrice)
+				book.LastPAAPISuccessDate = time.Now()
 				processedStatus[book.ASIN] = &book
 			}
 		}

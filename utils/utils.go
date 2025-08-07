@@ -400,7 +400,6 @@ func requestWithBackoff[T paapi5.Query](cfg aws.Config, client paapi5.Client, q 
 		PutMetric(cfg, "KindleBot/Usage", "PAAPIRequest")
 		if err == nil {
 			PutMetric(cfg, "KindleBot/Usage", "PAAPISuccess")
-			time.Sleep(time.Second * 2)
 			return body, nil
 		}
 
