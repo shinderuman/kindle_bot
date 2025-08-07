@@ -106,30 +106,30 @@ func getDataSegment(books []utils.KindleBook, now time.Time) []utils.KindleBook 
 	var executionDescription string
 
 	switch executionIndex {
-	case 0: // 1st execution: first half, sort by PA API success date
+	case 0: // 1st execution: first half, normal sort
 		segment = books[:splitPoint]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].LastPAAPISuccessDate.Before(segment[j].LastPAAPISuccessDate)
+			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
 		})
-		executionDescription = "first half + PA API success date sort"
-	case 1: // 2nd execution: second half, sort by PA API success date
+		executionDescription = "first half + normal sort"
+	case 1: // 2nd execution: second half, normal sort
 		segment = books[splitPoint:]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].LastPAAPISuccessDate.Before(segment[j].LastPAAPISuccessDate)
+			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
 		})
-		executionDescription = "second half + PA API success date sort"
-	case 2: // 3rd execution: first half, reverse PA API success date sort
+		executionDescription = "second half + normal sort"
+	case 2: // 3rd execution: first half, reverse sort
 		segment = books[:splitPoint]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].LastPAAPISuccessDate.After(segment[j].LastPAAPISuccessDate)
+			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
 		})
-		executionDescription = "first half + reverse PA API success date sort"
-	case 3: // 4th execution: second half, reverse PA API success date sort
+		executionDescription = "first half + reverse sort"
+	case 3: // 4th execution: second half, reverse sort
 		segment = books[splitPoint:]
 		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].LastPAAPISuccessDate.After(segment[j].LastPAAPISuccessDate)
+			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
 		})
-		executionDescription = "second half + reverse PA API success date sort"
+		executionDescription = "second half + reverse sort"
 	}
 
 	log.Printf("Execution cycle: %d/%d (interval: %dmin), %s, processing %d books",
