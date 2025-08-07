@@ -170,7 +170,11 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 		log.Printf("%s %04d/%04d: %s | %s | %s", prefix, processedCount, totalBooksCount, releaseDateStr, title, url)
 	}
 
-	for _, chunk := range chunks {
+	for i, chunk := range chunks {
+		if i != 0 {
+			log.Printf("Sleeping 60 seconds before next chunk...")
+			time.Sleep(60 * time.Second)
+		}
 		resp, err := utils.GetItems(cfg, client, chunk)
 		if err != nil {
 			fallbackBooks := utils.AppendFallbackBooks(chunk, segmentBooks)
@@ -190,14 +194,6 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 			book := utils.GetBook(item.ASIN, segmentBooks)
 			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "[Success]")
 
-			if !isKindle(item) {
-				utils.AlertToSlack(fmt.Errorf(
-					"the item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
-					item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
-				), false)
-				continue
-			}
-
 			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
 			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
@@ -210,8 +206,6 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 			}
 		}
 
-		log.Printf("Sleeping 60 seconds before next chunk...")
-		time.Sleep(60 * time.Second)
 	}
 
 	if successfulRequests == 0 {
@@ -219,10 +213,6 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 	}
 
 	return processedStatus, nil
-}
-
-func isKindle(item entity.Item) bool {
-	return item.ItemInfo.Classifications.Binding.DisplayValue == "Kindle版"
 }
 
 func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
