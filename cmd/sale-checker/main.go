@@ -5,7 +5,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,7 +61,7 @@ func process() error {
 	newBooks := getUnprocessedBooks(allBooks, processedMap)
 
 	utils.SortByReleaseDate(newBooks)
-	if reflect.DeepEqual(originalBooks, newBooks) {
+	if booksEqualIgnoringTimestamp(originalBooks, newBooks) {
 		return nil
 	}
 
@@ -152,6 +151,26 @@ func getUnprocessedBooks(allBooks []utils.KindleBook, processedMap map[string]*u
 	}
 
 	return result
+}
+
+func booksEqualIgnoringTimestamp(books1, books2 []utils.KindleBook) bool {
+	if len(books1) != len(books2) {
+		return false
+	}
+
+	for i, book1 := range books1 {
+		book2 := books2[i]
+		if book1.ASIN != book2.ASIN ||
+			book1.Title != book2.Title ||
+			book1.ReleaseDate != book2.ReleaseDate ||
+			book1.CurrentPrice != book2.CurrentPrice ||
+			book1.MaxPrice != book2.MaxPrice ||
+			book1.URL != book2.URL {
+			return false
+		}
+	}
+
+	return true
 }
 
 func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.KindleBook, totalBooksCount int) (map[string]*utils.KindleBook, error) {
