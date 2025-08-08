@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"time"
-
 	"github.com/goark/pa-api/entity"
 )
 
@@ -17,6 +15,7 @@ type Config struct {
 	S3UpcomingObjectKey               string `json:"S3UpcomingObjectKey"`
 	S3PrevIndexNewReleaseObjectKey    string `json:"S3PrevIndexNewReleaseObjectKey"`
 	S3PrevIndexPaperToKindleObjectKey string `json:"S3PrevIndexPaperToKindleObjectKey"`
+	S3PrevIndexSaleCheckerObjectKey   string `json:"S3PrevIndexSaleCheckerObjectKey"`
 	S3Region                          string `json:"S3Region"`
 	AmazonPartnerTag                  string `json:"AmazonPartnerTag"`
 	AmazonAccessKey                   string `json:"AmazonAccessKey"`
@@ -32,13 +31,12 @@ type Config struct {
 }
 
 type KindleBook struct {
-	ASIN                 string      `json:"ASIN"`
-	Title                string      `json:"Title"`
-	ReleaseDate          entity.Date `json:"ReleaseDate"`
-	CurrentPrice         float64     `json:"CurrentPrice"`
-	MaxPrice             float64     `json:"MaxPrice"`
-	URL                  string      `json:"URL"`
-	LastPAAPISuccessDate time.Time   `json:"LastPAAPISuccessDate"`
+	ASIN         string      `json:"ASIN"`
+	Title        string      `json:"Title"`
+	ReleaseDate  entity.Date `json:"ReleaseDate"`
+	CurrentPrice float64     `json:"CurrentPrice"`
+	MaxPrice     float64     `json:"MaxPrice"`
+	URL          string      `json:"URL"`
 }
 
 type GistFileContent struct {

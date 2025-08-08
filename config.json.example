@@ -8,6 +8,7 @@
 	"S3UpcomingObjectKey": "upcoming_asins.json",
 	"S3PrevIndexNewReleaseObjectKey": "prev_index_new_release.txt",
 	"S3PrevIndexPaperToKindleObjectKey": "prev_index_paper_to_kindle.txt",
+	"S3PrevIndexSaleCheckerObjectKey": "prev_index_sale_checker.txt",
 	"S3Region": "ap-northeast-1",
 	"AmazonPartnerTag": "your-partner-tag",
 	"AmazonAccessKey": "YOUR_AMAZON_ACCESS_KEY",

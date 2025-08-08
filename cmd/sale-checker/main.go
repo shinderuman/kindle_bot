@@ -3,15 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
-	"math"
-	"os"
-	"sort"
-	"strconv"
+	"reflect"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	paapi5 "github.com/goark/pa-api"
 	"github.com/goark/pa-api/entity"
 
 	"kindle_bot/utils"
@@ -20,10 +15,6 @@ import (
 const (
 	gistID       = "571a55fc0f9e56156cae277ded0cf09c"
 	gistFilename = "わいのセールになってほしい本.md"
-)
-
-var (
-	executionIntervalMinutes = 60
 )
 
 func main() {
@@ -36,10 +27,6 @@ func process() error {
 		return err
 	}
 
-	initEnvironmentVariables()
-
-	client := utils.CreateClient()
-
 	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
 	if err != nil {
 		return fmt.Errorf("failed to fetch unprocessed ASINs: %w", err)
@@ -51,25 +38,31 @@ func process() error {
 	}
 
 	allBooks := utils.UniqueASINs(append(originalBooks, upcomingBooks...))
-	segmentBooks := getDataSegment(allBooks, time.Now())
+	segmentBooks, startIndex, endIndex := getNextProcessingSegment(cfg, allBooks)
 
-	processedMap, err := processASINs(cfg, client, segmentBooks, len(utils.UniqueASINs(allBooks)))
+	processedBooks, err := checkBooksForSales(cfg, segmentBooks)
 	if err != nil {
 		return fmt.Errorf("PA API processing failed: %v", err)
 	}
 
-	newBooks := getUnprocessedBooks(allBooks, processedMap)
+	if err := utils.PutS3Object(cfg, fmt.Sprintf("%d", endIndex), utils.EnvConfig.S3PrevIndexSaleCheckerObjectKey); err != nil {
+		return fmt.Errorf("failed to save progress index: %w", err)
+	}
 
-	utils.SortByReleaseDate(newBooks)
-	if booksEqualIgnoringTimestamp(originalBooks, newBooks) {
+	updatedBooks := replaceProcessedSegment(allBooks, processedBooks, startIndex, endIndex)
+
+	utils.SortByReleaseDate(updatedBooks)
+	if reflect.DeepEqual(originalBooks, updatedBooks) {
+		log.Println("No changes detected in book data, skipping file updates")
 		return nil
 	}
 
-	if err := utils.SaveASINs(cfg, newBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+	log.Println("Changes detected in book data, proceeding with file updates")
+	if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
 
-	if err := updateGist(newBooks); err != nil {
+	if err := updateGist(updatedBooks); err != nil {
 		return fmt.Errorf("error update gist: %s", err)
 	}
 
@@ -80,175 +73,89 @@ func process() error {
 	return nil
 }
 
-func initEnvironmentVariables() {
-	if envInterval := os.Getenv("SALE_CHECKER_INTERVAL_MINUTES"); envInterval != "" {
-		if interval, err := strconv.Atoi(envInterval); err == nil && interval > 0 {
-			executionIntervalMinutes = interval
-		}
-	}
-}
-
-func getDataSegment(books []utils.KindleBook, now time.Time) []utils.KindleBook {
+func getNextProcessingSegment(cfg aws.Config, books []utils.KindleBook) ([]utils.KindleBook, int, int) {
 	if len(books) == 0 {
-		return books
+		return books, 0, 0
 	}
 
-	cycleMinutes := executionIntervalMinutes * 4
-	minutesInCycle := int(now.Unix()/60) % cycleMinutes
-	executionIndex := minutesInCycle / executionIntervalMinutes // 0, 1, 2, 3
-
-	totalItems := len(books)
-	splitPoint := (totalItems / 2 / 10) * 10
-
-	var segment []utils.KindleBook
-
-	var executionDescription string
-
-	switch executionIndex {
-	case 0: // 1st execution: first half, normal sort
-		segment = books[:splitPoint]
-		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
-		})
-		executionDescription = "first half + normal sort"
-	case 1: // 2nd execution: second half, normal sort
-		segment = books[splitPoint:]
-		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.Before(segment[j].ReleaseDate.Time)
-		})
-		executionDescription = "second half + normal sort"
-	case 2: // 3rd execution: first half, reverse sort
-		segment = books[:splitPoint]
-		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
-		})
-		executionDescription = "first half + reverse sort"
-	case 3: // 4th execution: second half, reverse sort
-		segment = books[splitPoint:]
-		sort.Slice(segment, func(i, j int) bool {
-			return segment[i].ReleaseDate.Time.After(segment[j].ReleaseDate.Time)
-		})
-		executionDescription = "second half + reverse sort"
+	startIndex := getLastProcessedIndex(cfg)
+	if startIndex >= len(books) {
+		startIndex = 0
 	}
 
-	log.Printf("Execution cycle: %d/%d (interval: %dmin), %s, processing %d books",
-		executionIndex+1, 4, executionIntervalMinutes, executionDescription, len(segment))
+	endIndex := min(startIndex+10, len(books))
 
-	return segment
+	segment := books[startIndex:endIndex]
+
+	log.Printf("Processing books %d-%d of %d total (segment size: %d)",
+		startIndex+1, endIndex, len(books), len(segment))
+
+	for i, book := range segment {
+		log.Printf("[Queue] %d/%d: %s | %s | %s",
+			startIndex+i+1, len(books), book.ReleaseDate.Format("2006-01-02"), book.Title, book.URL)
+	}
+
+	return segment, startIndex, endIndex
 }
 
-func getUnprocessedBooks(allBooks []utils.KindleBook, processedMap map[string]*utils.KindleBook) []utils.KindleBook {
-	var result []utils.KindleBook
-	for _, book := range allBooks {
-		if processedBook, exists := processedMap[book.ASIN]; exists {
-			if processedBook == nil {
-				continue
-			}
-			result = append(result, *processedBook)
+func getLastProcessedIndex(cfg aws.Config) int {
+	data, err := utils.GetS3Object(cfg, utils.EnvConfig.S3PrevIndexSaleCheckerObjectKey)
+	if err != nil {
+		return 0
+	}
+
+	var index int
+	if _, err := fmt.Sscanf(string(data), "%d", &index); err != nil {
+		return 0
+	}
+	return index
+}
+
+func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]utils.KindleBook, error) {
+	client := utils.CreateClient()
+
+	var processedBooks []utils.KindleBook
+
+	var asins []string
+	for _, book := range segmentBooks {
+		asins = append(asins, book.ASIN)
+	}
+	resp, err := utils.GetItems(cfg, client, asins, 30)
+	if err != nil {
+		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
+		return segmentBooks, err
+	}
+
+	utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
+	for _, item := range resp.ItemsResult.Items {
+		book := utils.GetBook(item.ASIN, segmentBooks)
+
+		maxPrice := max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
+
+		if conditions := extractSaleConditions(item, maxPrice); len(conditions) > 0 {
+			utils.LogAndNotify(formatSlackMessage(item, conditions), true)
 		} else {
-			result = append(result, book)
+			updatedBook := utils.MakeBook(item, maxPrice)
+			processedBooks = append(processedBooks, updatedBook)
 		}
 	}
 
-	return result
+	return processedBooks, nil
 }
 
-func booksEqualIgnoringTimestamp(books1, books2 []utils.KindleBook) bool {
-	if len(books1) != len(books2) {
-		return false
-	}
-
-	for i, book1 := range books1 {
-		book2 := books2[i]
-		if book1.ASIN != book2.ASIN ||
-			book1.Title != book2.Title ||
-			book1.ReleaseDate != book2.ReleaseDate ||
-			book1.CurrentPrice != book2.CurrentPrice ||
-			book1.MaxPrice != book2.MaxPrice ||
-			book1.URL != book2.URL {
-			return false
-		}
-	}
-
-	return true
-}
-
-func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.KindleBook, totalBooksCount int) (map[string]*utils.KindleBook, error) {
-	processedStatus := make(map[string]*utils.KindleBook)
-	var successfulRequests int
-	var processedCount int
-
-	jst, _ := time.LoadLocation("Asia/Tokyo")
-	chunks := utils.ChunkedASINs(segmentBooks, 10)
-
-	logBookProcessing := func(title, url string, releaseDate time.Time, prefix string) {
-		processedCount++
-		releaseDateStr := "N/A"
-		if !releaseDate.IsZero() {
-			releaseDateStr = releaseDate.Format("2006-01-02")
-		}
-		log.Printf("%s %04d/%04d: %s | %s | %s", prefix, processedCount, totalBooksCount, releaseDateStr, title, url)
-	}
-
-	for i, chunk := range chunks {
-		if i != 0 {
-			log.Printf("Sleeping 60 seconds before next chunk...")
-			time.Sleep(60 * time.Second)
-		}
-		resp, err := utils.GetItems(cfg, client, chunk, 30)
-		if err != nil {
-			fallbackBooks := utils.AppendFallbackBooks(chunk, segmentBooks)
-			for _, book := range fallbackBooks {
-				logBookProcessing(book.Title, book.URL, book.ReleaseDate.Time, "[Failure]")
-				processedStatus[book.ASIN] = &book
-			}
-
-			utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
-			// utils.AlertToSlack(fmt.Errorf("error fetching item details: %v", err), false)
-			continue
-		}
-
-		successfulRequests++
-		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
-		for _, item := range resp.ItemsResult.Items {
-			book := utils.GetBook(item.ASIN, segmentBooks)
-			logBookProcessing(item.ItemInfo.Title.DisplayValue, item.DetailPageURL, book.ReleaseDate.Time, "[Success]")
-
-			maxPrice := math.Max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
-
-			if conditions := extractQualifiedConditions(item, maxPrice); len(conditions) > 0 {
-				utils.LogAndNotify(formatSlackMessage(item, conditions), true)
-				processedStatus[item.ASIN] = nil
-			} else {
-				book := utils.MakeBook(item, maxPrice)
-				now := time.Now().In(jst)
-				book.LastPAAPISuccessDate = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, jst)
-				processedStatus[book.ASIN] = &book
-			}
-		}
-
-	}
-
-	if successfulRequests == 0 {
-		return processedStatus, fmt.Errorf("all PA API requests failed (%d/%d)", successfulRequests, len(chunks))
-	}
-
-	return processedStatus, nil
-}
-
-func extractQualifiedConditions(item entity.Item, maxPrice float64) []string {
-	amount := (*item.Offers.Listings)[0].Price.Amount
-	points := (*item.Offers.Listings)[0].LoyaltyPoints.Points
+func extractSaleConditions(item entity.Item, maxPrice float64) []string {
+	currentPrice := (*item.Offers.Listings)[0].Price.Amount
+	loyaltyPoints := (*item.Offers.Listings)[0].LoyaltyPoints.Points
 
 	var conditions []string
-	if diff := maxPrice - amount; diff >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", diff))
+	if priceDiff := maxPrice - currentPrice; priceDiff >= 151 {
+		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", priceDiff))
 	}
-	if points >= 151 {
-		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", points))
+	if loyaltyPoints >= 151 {
+		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", loyaltyPoints))
 	}
-	if percent := float64(points) / amount * 100; percent >= 20 {
-		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", percent))
+	if pointPercent := float64(loyaltyPoints) / currentPrice * 100; pointPercent >= 20 {
+		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", pointPercent))
 	}
 
 	return conditions
@@ -261,6 +168,13 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 		strings.Join(conditions, " "),
 		item.DetailPageURL,
 	)
+}
+
+func replaceProcessedSegment(allBooks, processedBooks []utils.KindleBook, startIndex, endIndex int) []utils.KindleBook {
+	result := allBooks[:startIndex]
+	result = append(result, processedBooks...)
+	result = append(result, allBooks[endIndex:]...)
+	return result
 }
 
 func updateGist(books []utils.KindleBook) error {

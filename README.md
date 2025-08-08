@@ -119,7 +119,7 @@ kindle_bot/
 |---------|-------------------|----------------|---------|
 | `new-release-checker` | 1 minute | 7 days (weekly) | Check for new releases from authors |
 | `paper-to-kindle-checker` | 1 minute | 1 day (daily) | Check if paper books have Kindle editions |
-| `sale-checker` | 30-120 minutes | 4-cycle segmentation | Monitor Kindle book sales with data segmentation |
+| `sale-checker` | Any interval | Sequential processing | Monitor Kindle book sales with 10-book batches |
 
 ### Environment Variables
 
@@ -134,46 +134,30 @@ Each program supports environment variables to customize execution behavior:
 - `PAPER_TO_KINDLE_CYCLE_DAYS` (default: 1.0) - Cycle duration in days for book processing
 
 #### sale-checker
-- `SALE_CHECKER_INTERVAL_MINUTES` (default: 60) - Execution interval in minutes for data segmentation
-  - Accepts any positive integer (e.g., 30, 60, 120, 240, 360 minutes)
-  - Determines 4-cycle processing: first/second half with normal/reverse sorting
-  - Must match your CloudWatch Events schedule
+- No environment variables required
+- Processes 10 books per execution in file order
+- Progress is automatically saved to S3 for continuation
 
 #### Global (utils package)
 - `GET_ITEMS_PAAPI_RETRY_COUNT` (default: 3) - PA-API retry count for GetItems requests
 
-### Data Segmentation (sale-checker)
+### Sequential Processing (sale-checker)
 
-The sale-checker implements time-based data segmentation to reduce API load and prevent rate limiting:
+The sale-checker implements sequential batch processing to efficiently monitor book sales:
 
-- **4-Cycle Processing**: Each complete cycle processes all data twice
-- **Execution Pattern**:
-  1. First half + normal sort (oldest to newest)
-  2. Second half + normal sort  
-  3. First half + reverse sort (newest to oldest)
-  4. Second half + reverse sort
+- **Batch Processing**: Processes exactly 10 books per execution
+- **Progress Tracking**: Saves progress to S3 for automatic continuation
+- **Sequential Order**: Processes books in file order
+- **Automatic Continuation**: Next execution continues from where the previous one left off
+- **Automatic Reset**: When reaching the end of the book list, automatically starts from the beginning
 
-- **Data Splitting**: Books are split at 10-item boundaries for optimal PA-API chunk processing
-- **API Load Reduction**: 10-second sleep between each chunk to prevent rate limiting
-
-**Example Configurations**:
+**Configuration Example**:
 ```bash
-# 30-minute intervals (2-hour complete cycle)
-SALE_CHECKER_INTERVAL_MINUTES=30
+# CloudWatch Events: Any interval (e.g., 30 minutes)
 # CloudWatch: rate(30 minutes)
-
-# 60-minute intervals (4-hour complete cycle) 
-SALE_CHECKER_INTERVAL_MINUTES=60
-# CloudWatch: rate(60 minutes)
-
-# 120-minute intervals (8-hour complete cycle)
-SALE_CHECKER_INTERVAL_MINUTES=120  
-# CloudWatch: rate(120 minutes)
-
-# 240-minute intervals (16-hour complete cycle)
-SALE_CHECKER_INTERVAL_MINUTES=240
-# CloudWatch: rate(240 minutes)
 ```
+
+**Note**: Set the execution interval considering PA-API retry processing time (up to several minutes). If the interval is too short, concurrent execution may occur and cause race conditions.
 
 ## Usage
 
@@ -347,7 +331,7 @@ kindle_bot/
 |-----------|---------------|-------------|------|
 | `new-release-checker` | 1分 | 7日（週次） | 著者の新刊チェック |
 | `paper-to-kindle-checker` | 1分 | 1日（日次） | 紙書籍のKindle版チェック |
-| `sale-checker` | 30-120分 | 4サイクル分割 | Kindle本のセール監視（データ分割処理） |
+| `sale-checker` | 任意の間隔 | 順次処理 | Kindle本のセール監視（10件ずつバッチ処理） |
 
 ### 環境変数
 
@@ -362,47 +346,30 @@ kindle_bot/
 - `PAPER_TO_KINDLE_CYCLE_DAYS` (デフォルト: 1.0) - 書籍処理のサイクル日数
 
 #### sale-checker
-- `SALE_CHECKER_INTERVAL_MINUTES` (デフォルト: 60) - データ分割処理の実行間隔（分）
-  - 任意の正の整数を指定可能（例: 30, 60, 120, 240, 360分）
-  - 4サイクル処理を決定: 前半/後半 × 順/逆ソート
-  - CloudWatch Eventsのスケジュールと一致させる必要があります
+- 環境変数は不要
+- ファイル順で1回につき10件を処理
+- 進捗は自動的にS3に保存され、次回実行時に継続
 
 #### 全体共通 (utilsパッケージ)
 - `GET_ITEMS_PAAPI_RETRY_COUNT` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
 
-### データ分割処理 (sale-checker)
+### 順次処理 (sale-checker)
 
-sale-checkerは時間ベースのデータ分割を実装し、API負荷を軽減してレート制限を防ぎます：
+sale-checkerは順次バッチ処理を実装し、効率的に書籍のセール監視を行います：
 
-- **4サイクル処理**: 1つの完全サイクルで全データを2回処理
-- **実行パターン**:
-  1. 前半 + 順ソート（古い順）
-  2. 後半 + 順ソート  
-  3. 前半 + 逆ソート（新しい順）
-  4. 後半 + 逆ソート
-
-- **データ分割**: PA-APIチャンク処理に最適化された10件単位での分割
-- **API負荷軽減**: 各チャンク間に10秒のスリープでレート制限を防止
-- **PA API成功追跡**: 各書籍の最後のPA API成功日付を記録（将来の機能拡張用）
+- **バッチ処理**: 1回の実行で正確に10件を処理
+- **進捗追跡**: S3に進捗を保存して自動継続
+- **順次処理**: ファイル順で10件ずつ処理
+- **自動継続**: 次回実行時は前回の続きから処理
+- **自動リセット**: 書籍リストの最後に到達すると、自動的に最初から開始
 
 **設定例**:
 ```bash
-# 30分間隔（2時間で完全サイクル）
-SALE_CHECKER_INTERVAL_MINUTES=30
+# CloudWatch Events: 任意の間隔（例：30分）
 # CloudWatch: rate(30 minutes)
-
-# 60分間隔（4時間で完全サイクル） 
-SALE_CHECKER_INTERVAL_MINUTES=60
-# CloudWatch: rate(60 minutes)
-
-# 120分間隔（8時間で完全サイクル）
-SALE_CHECKER_INTERVAL_MINUTES=120  
-# CloudWatch: rate(120 minutes)
-
-# 240分間隔（16時間で完全サイクル）
-SALE_CHECKER_INTERVAL_MINUTES=240
-# CloudWatch: rate(240 minutes)
 ```
+
+**注意**: 実行間隔はPA-APIのリトライ処理時間（最大数分）を考慮して設定してください。間隔が短すぎると同時実行が発生し、競合状態を引き起こす可能性があります。
 
 ## 使用方法
 

@@ -96,6 +96,7 @@ func initConfig() error {
 				S3UpcomingObjectKey:               paramMap["S3_UPCOMING_OBJECT_KEY"],
 				S3PrevIndexNewReleaseObjectKey:    paramMap["S3_PREV_INDEX_NEW_RELEASE_OBJECT_KEY"],
 				S3PrevIndexPaperToKindleObjectKey: paramMap["S3_PREV_INDEX_PAPER_TO_KINDLE_OBJECT_KEY"],
+				S3PrevIndexSaleCheckerObjectKey:   paramMap["S3_PREV_INDEX_SALE_CHECKER_OBJECT_KEY"],
 				S3Region:                          paramMap["S3_REGION"],
 				AmazonPartnerTag:                  paramMap["AMAZON_PARTNER_TAG"],
 				AmazonAccessKey:                   paramMap["AMAZON_ACCESS_KEY"],
@@ -282,19 +283,6 @@ func UniqueASINs(slice []KindleBook) []KindleBook {
 	return result
 }
 
-func ChunkedASINs(books []KindleBook, size int) [][]string {
-	var chunks [][]string
-	for i := 0; i < len(books); i += size {
-		end := min(i+size, len(books))
-		var chunk []string
-		for _, book := range books[i:end] {
-			chunk = append(chunk, book.ASIN)
-		}
-		chunks = append(chunks, chunk)
-	}
-	return chunks
-}
-
 func SortByReleaseDate(books []KindleBook) {
 	sort.Slice(books, func(i, j int) bool {
 		if books[i].ReleaseDate.Time.After(books[j].ReleaseDate.Time) {
@@ -313,14 +301,6 @@ func GetBook(ASIN string, slice []KindleBook) KindleBook {
 		}
 	}
 	return KindleBook{}
-}
-
-func AppendFallbackBooks(asins []string, original []KindleBook) []KindleBook {
-	var result []KindleBook
-	for _, asin := range asins {
-		result = append(result, GetBook(asin, original))
-	}
-	return result
 }
 
 func MakeBook(item entity.Item, maxPrice float64) KindleBook {
