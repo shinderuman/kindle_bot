@@ -221,7 +221,8 @@ func processASINs(cfg aws.Config, client paapi5.Client, segmentBooks []utils.Kin
 				processedStatus[item.ASIN] = nil
 			} else {
 				book := utils.MakeBook(item, maxPrice)
-				book.LastPAAPISuccessDate = time.Now().In(jst)
+				now := time.Now().In(jst)
+				book.LastPAAPISuccessDate = time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, jst)
 				processedStatus[book.ASIN] = &book
 			}
 		}
