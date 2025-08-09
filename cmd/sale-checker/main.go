@@ -66,8 +66,19 @@ func process() error {
 		return fmt.Errorf("error update gist: %s", err)
 	}
 
-	if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
-		return fmt.Errorf("failed to clear upcoming ASINs: %w", err)
+	currentUpcoming, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UpcomingObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to fetch current upcoming ASINs for cleanup: %w", err)
+	}
+
+	if reflect.DeepEqual(upcomingBooks, currentUpcoming) {
+		if err := utils.SaveASINs(cfg, []utils.KindleBook{}, utils.EnvConfig.S3UpcomingObjectKey); err != nil {
+			return fmt.Errorf("failed to clear upcoming ASINs: %w", err)
+		}
+		log.Printf("Cleared %d upcoming books", len(upcomingBooks))
+	} else {
+		log.Printf("Upcoming ASINs changed during processing (was %d, now %d), skipping clear to avoid race condition",
+			len(upcomingBooks), len(currentUpcoming))
 	}
 
 	return nil
