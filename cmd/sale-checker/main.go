@@ -139,6 +139,14 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 
 	utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
 	for _, item := range resp.ItemsResult.Items {
+		if !isKindle(item) {
+			utils.AlertToSlack(fmt.Errorf(
+				"the item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+				item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
+			), false)
+			continue
+		}
+
 		book := utils.GetBook(item.ASIN, segmentBooks)
 
 		maxPrice := max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
@@ -152,6 +160,10 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 	}
 
 	return processedBooks, nil
+}
+
+func isKindle(item entity.Item) bool {
+	return item.ItemInfo.Classifications.Binding.DisplayValue == "Kindle版"
 }
 
 func extractSaleConditions(item entity.Item, maxPrice float64) []string {

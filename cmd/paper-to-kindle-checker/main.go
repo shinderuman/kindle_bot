@@ -121,7 +121,15 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 			return nil
 		}
 
-		*book = utils.MakeBook(items.ItemsResult.Items[0], 0)
+		item := items.ItemsResult.Items[0]
+		if !isComic(item) {
+			return fmt.Errorf(
+				"the item category is not a コミック.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+				item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
+			)
+		}
+
+		*book = utils.MakeBook(item, 0)
 	}
 
 	kindleItem, err := searchKindleEdition(cfg, client, *book)
@@ -173,6 +181,10 @@ func formatProcessError(operation string, index int, books []utils.KindleBook, e
 		books[index].ASIN,
 		err,
 	)
+}
+
+func isComic(item entity.Item) bool {
+	return item.ItemInfo.Classifications.Binding.DisplayValue == "コミック"
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
