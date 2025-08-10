@@ -108,7 +108,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	client := utils.CreateClient()
 	book := &books[index]
 
-	if book.Title == "" {
+	if book.URL == "" {
 		items, err := utils.GetItems(cfg, client, []string{book.ASIN}, 2)
 		if err != nil {
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
