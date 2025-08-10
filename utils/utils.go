@@ -204,6 +204,12 @@ func IsLambda() bool {
 	return os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != ""
 }
 
+func RandomDelayToAvoidConcurrency() {
+	delay := time.Duration(5+rand.Intn(11)) * time.Second
+	log.Printf("Waiting %v to avoid concurrent execution", delay)
+	time.Sleep(delay)
+}
+
 func InitAWSConfig() (aws.Config, error) {
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion(EnvConfig.S3Region),
