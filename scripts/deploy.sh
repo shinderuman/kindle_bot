@@ -63,6 +63,16 @@ deploy_function() {
     
     echo "Deploying $function_name..."
     
+    # Get current function info before deployment
+    local current_info
+    current_info=$(aws lambda get-function \
+        --profile "$AWS_PROFILE" \
+        --function-name "$function_name" \
+        --output json 2>/dev/null || echo "{}")
+    
+    local old_code_size
+    old_code_size=$(echo "$current_info" | jq -r '.Configuration.CodeSize // 0')
+    
     # Update Lambda function code and capture response
     local response
     response=$(aws lambda update-function-code \
@@ -75,22 +85,52 @@ deploy_function() {
     
     if [ $exit_code -eq 0 ]; then
         # Parse and display deployment information
-        local code_size
-        local last_modified
-        local runtime
-        local version
+        local code_size last_modified runtime version code_sha256 memory_size timeout
         
         # Parse JSON response using jq
         code_size=$(echo "$response" | jq -r '.CodeSize // "N/A"')
         last_modified=$(echo "$response" | jq -r '.LastModified // "N/A"')
         runtime=$(echo "$response" | jq -r '.Runtime // "N/A"')
         version=$(echo "$response" | jq -r '.Version // "N/A"')
+        code_sha256=$(echo "$response" | jq -r '.CodeSha256 // "N/A"')
+        
+        # Get memory and timeout from the update response (they're included there)
+        memory_size=$(echo "$response" | jq -r '.MemorySize // "N/A"')
+        timeout=$(echo "$response" | jq -r '.Timeout // "N/A"')
+        
+        # Calculate size difference
+        local size_diff=""
+        if [ "$old_code_size" != "0" ] && [ "$code_size" != "N/A" ]; then
+            local diff=$((code_size - old_code_size))
+            if [ $diff -gt 0 ]; then
+                size_diff=" (+$(format_bytes $diff))"
+            elif [ $diff -lt 0 ]; then
+                size_diff=" ($(format_bytes $diff))"
+            else
+                size_diff=" (no change)"
+            fi
+        fi
         
         echo "✅ Deployed $function_name successfully"
-        echo "   📦 Code Size: $(format_bytes "$code_size")"
-        echo "   🕒 Last Modified: $last_modified"
+        echo "   📦 Code Size: $(format_bytes "$code_size")$size_diff"
+        echo "   🕒 Last Modified: $(format_timestamp "$last_modified")"
         echo "   🔧 Runtime: $runtime"
+        echo "   💾 Memory: ${memory_size} MB"
+        echo "   ⏱️  Timeout: $(format_timeout "$timeout")"
+        echo "   🔑 SHA256: ${code_sha256:0:12}..."
         echo "   📋 Version: $version"
+        
+        # Get function URL if exists
+        local function_url
+        function_url=$(aws lambda get-function-url-config \
+            --profile "$AWS_PROFILE" \
+            --function-name "$function_name" \
+            --output json 2>/dev/null | jq -r '.FunctionUrl // empty')
+        
+        if [ -n "$function_url" ]; then
+            echo "   🌐 Function URL: $function_url"
+        fi
+        
     else
         echo "❌ Failed to deploy $function_name"
         echo "Error details:"
@@ -108,14 +148,62 @@ format_bytes() {
         return
     fi
     
+    # Handle negative numbers for size differences
+    local sign=""
+    if [ "$bytes" -lt 0 ]; then
+        sign="-"
+        bytes=$((bytes * -1))
+    fi
+    
     if [ "$bytes" -lt 1024 ]; then
-        echo "${bytes} B"
+        echo "${sign}${bytes} B"
     elif [ "$bytes" -lt 1048576 ]; then
-        echo "$((bytes / 1024)) KB"
+        echo "${sign}$((bytes / 1024)) KB"
     elif [ "$bytes" -lt 1073741824 ]; then
-        echo "$((bytes / 1048576)) MB"
+        echo "${sign}$((bytes / 1048576)) MB"
     else
-        echo "$((bytes / 1073741824)) GB"
+        echo "${sign}$((bytes / 1073741824)) GB"
+    fi
+}
+
+# Function to format timestamp into readable format (UTC)
+format_timestamp() {
+    local timestamp="$1"
+    
+    if [ "$timestamp" = "N/A" ] || [ -z "$timestamp" ]; then
+        echo "N/A"
+        return
+    fi
+    
+    # Convert ISO 8601 timestamp to readable UTC format
+    local clean_timestamp="${timestamp%.*}"  # Remove milliseconds
+    clean_timestamp="${clean_timestamp%+*}"  # Remove timezone info
+    clean_timestamp="${clean_timestamp}Z"    # Add UTC indicator
+    
+    # Simple format conversion: 2025-08-10T16:14:58Z -> 2025-08-10 16:14:58 UTC
+    echo "${clean_timestamp}" | sed 's/T/ /' | sed 's/Z/ UTC/'
+}
+
+# Function to format timeout into readable format
+format_timeout() {
+    local seconds="$1"
+    
+    if [ "$seconds" = "N/A" ] || [ -z "$seconds" ]; then
+        echo "N/A"
+        return
+    fi
+    
+    local minutes=$((seconds / 60))
+    local remaining_seconds=$((seconds % 60))
+    
+    if [ $minutes -gt 0 ]; then
+        if [ $remaining_seconds -gt 0 ]; then
+            echo "${minutes}m ${remaining_seconds}s (${seconds}s)"
+        else
+            echo "${minutes}m (${seconds}s)"
+        fi
+    else
+        echo "${seconds}s"
     fi
 }
 
@@ -259,6 +347,23 @@ main() {
     
     echo ""
     echo "🎉 All operations completed successfully!"
+    
+    # Display summary information
+    if [ "$BUILD_ONLY" != true ]; then
+        echo ""
+        echo "📊 Deployment Summary:"
+        echo "   🔗 AWS Console: https://console.aws.amazon.com/lambda/home?region=$(aws configure get region --profile "$AWS_PROFILE" 2>/dev/null || echo "us-east-1")#/functions"
+        echo "   📈 CloudWatch Logs: https://console.aws.amazon.com/cloudwatch/home?region=$(aws configure get region --profile "$AWS_PROFILE" 2>/dev/null || echo "us-east-1")#logsV2:log-groups"
+        echo "   ⚡ CloudWatch Events: https://console.aws.amazon.com/events/home?region=$(aws configure get region --profile "$AWS_PROFILE" 2>/dev/null || echo "us-east-1")#/rules"
+        
+        # Show next steps
+        echo ""
+        echo "💡 Next Steps:"
+        echo "   • Monitor function execution in CloudWatch Logs"
+        echo "   • Check CloudWatch Events for scheduled triggers"
+        echo "   • Verify function configurations in AWS Console"
+        echo "   • Test functions manually if needed"
+    fi
 }
 
 # Execute main function with all arguments
