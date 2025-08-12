@@ -108,7 +108,9 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 	client := utils.CreateClient()
 	book := &books[index]
 
-	if book.URL == "" {
+	bookInfoUpdated := book.URL == ""
+
+	if bookInfoUpdated {
 		items, err := utils.GetItems(cfg, client, []string{book.ASIN}, 2)
 		if err != nil {
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
@@ -166,6 +168,11 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		utils.SortByReleaseDate(updatedBooks)
 		if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
 			return fmt.Errorf("failed to save paper books: %w", err)
+		}
+	} else if bookInfoUpdated {
+		utils.SortByReleaseDate(books)
+		if err := utils.SaveASINs(cfg, books, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+			return fmt.Errorf("failed to save updated book info: %w", err)
 		}
 	}
 

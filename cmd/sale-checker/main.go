@@ -45,7 +45,7 @@ func process() error {
 		return fmt.Errorf("PA API processing failed: %v", err)
 	}
 
-	if err := utils.PutS3Object(cfg, fmt.Sprintf("%d", endIndex), utils.EnvConfig.S3PrevIndexSaleCheckerObjectKey); err != nil {
+	if err := utils.PutS3Object(cfg, fmt.Sprintf("%d", startIndex+len(processedBooks)), utils.EnvConfig.S3PrevIndexSaleCheckerObjectKey); err != nil {
 		return fmt.Errorf("failed to save progress index: %w", err)
 	}
 
