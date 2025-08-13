@@ -188,7 +188,8 @@ func formatProcessError(operation string, index int, books []utils.KindleBook, e
 }
 
 func isComic(item entity.Item) bool {
-	return item.ItemInfo.Classifications.Binding.DisplayValue == "コミック"
+	binding := item.ItemInfo.Classifications.Binding.DisplayValue
+	return binding == "コミック" || binding == "単行本"
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
