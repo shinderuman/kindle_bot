@@ -156,7 +156,11 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		notifiedMap[kindleItem.ASIN] = b
 		upcomingMap[kindleItem.ASIN] = b
 
-		if err := utils.SaveNotifiedAndUpcomingASINs(cfg, notifiedMap, upcomingMap); err != nil {
+		if err := utils.SaveNotifiedASINs(cfg, notifiedMap); err != nil {
+			return err
+		}
+
+		if err := utils.SaveUpcomingASINs(cfg, upcomingMap); err != nil {
 			return err
 		}
 

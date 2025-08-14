@@ -458,19 +458,17 @@ func FetchNotifiedASINs(cfg aws.Config, now time.Time) (map[string]KindleBook, e
 	return m, nil
 }
 
-func SaveNotifiedAndUpcomingASINs(cfg aws.Config, notifiedMap, upcomingMap map[string]KindleBook) error {
+func SaveNotifiedASINs(cfg aws.Config, notifiedMap map[string]KindleBook) error {
+	if len(notifiedMap) == 0 {
+		return nil
+	}
+	return saveASINsFromMap(cfg, notifiedMap, EnvConfig.S3NotifiedObjectKey)
+}
+
+func SaveUpcomingASINs(cfg aws.Config, upcomingMap map[string]KindleBook) error {
 	if len(upcomingMap) == 0 {
 		return nil
 	}
-
-	if err := saveASINsFromMap(cfg, notifiedMap, EnvConfig.S3NotifiedObjectKey); err != nil {
-		return err
-	}
-
-	return updateUpcomingASINs(cfg, upcomingMap)
-}
-
-func updateUpcomingASINs(cfg aws.Config, upcomingMap map[string]KindleBook) error {
 	currentUpcoming, err := FetchASINs(cfg, EnvConfig.S3UpcomingObjectKey)
 	if err != nil {
 		return fmt.Errorf("failed to fetch upcoming ASINs: %w", err)

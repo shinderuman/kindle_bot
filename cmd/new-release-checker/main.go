@@ -162,7 +162,11 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 		upcomingMap[item.ASIN] = b
 	}
 
-	if err := utils.SaveNotifiedAndUpcomingASINs(cfg, notifiedMap, upcomingMap); err != nil {
+	if err := utils.SaveNotifiedASINs(cfg, notifiedMap); err != nil {
+		return err
+	}
+
+	if err := utils.SaveUpcomingASINs(cfg, upcomingMap); err != nil {
 		return err
 	}
 
