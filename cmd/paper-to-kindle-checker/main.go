@@ -130,9 +130,8 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		}
 
 		*book = utils.MakeBook(item, 0)
-		utils.SortByReleaseDate(books)
-		if err := utils.SaveASINs(cfg, books, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
-			return fmt.Errorf("failed to save updated book info: %w", err)
+		if err := savePaperBooks(cfg, books); err != nil {
+			return err
 		}
 	}
 
@@ -171,9 +170,8 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 			}
 		}
 
-		utils.SortByReleaseDate(updatedBooks)
-		if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
-			return fmt.Errorf("failed to save paper books: %w", err)
+		if err := savePaperBooks(cfg, updatedBooks); err != nil {
+			return err
 		}
 	}
 
@@ -194,6 +192,15 @@ func formatProcessError(operation string, index int, books []utils.KindleBook, e
 func isComic(item entity.Item) bool {
 	binding := item.ItemInfo.Classifications.Binding.DisplayValue
 	return binding == "コミック" || binding == "単行本"
+}
+
+func savePaperBooks(cfg aws.Config, books []utils.KindleBook) error {
+	uniqueBooks := utils.UniqueASINs(books)
+	utils.SortByReleaseDate(uniqueBooks)
+	if err := utils.SaveASINs(cfg, uniqueBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+		return fmt.Errorf("failed to save paper books: %w", err)
+	}
+	return nil
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
