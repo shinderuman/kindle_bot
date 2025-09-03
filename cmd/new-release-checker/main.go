@@ -42,8 +42,6 @@ func main() {
 }
 
 func process() error {
-	utils.RandomDelayToAvoidConcurrency()
-
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
