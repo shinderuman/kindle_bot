@@ -138,6 +138,16 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 
 		book := utils.GetBook(item.ASIN, segmentBooks)
 
+		if item.Offers == nil || item.Offers.Listings == nil || len(*item.Offers.Listings) == 0 || (*item.Offers.Listings)[0].Price == nil {
+			utils.AlertToSlack(fmt.Errorf(
+				"price information not available for item.\nASIN: %s\nTitle: %s\nURL: %s",
+				item.ASIN, item.ItemInfo.Title.DisplayValue, item.DetailPageURL,
+			), false)
+
+			processedBooks = append(processedBooks, book)
+			continue
+		}
+
 		maxPrice := max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
 		if conditions := extractSaleConditions(item, maxPrice); len(conditions) > 0 {
