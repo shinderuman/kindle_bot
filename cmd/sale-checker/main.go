@@ -62,7 +62,7 @@ func process() error {
 		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
 
-	if err := updateGist(updatedBooks); err != nil {
+	if err := utils.UpdateBookGist(gistID, gistFilename, updatedBooks); err != nil {
 		return fmt.Errorf("error update gist: %s", err)
 	}
 
@@ -197,17 +197,6 @@ func replaceProcessedSegment(allBooks, processedBooks []utils.KindleBook, startI
 	result = append(result, processedBooks...)
 	result = append(result, allBooks[endIndex:]...)
 	return result
-}
-
-func updateGist(books []utils.KindleBook) error {
-	var lines []string
-	for _, book := range books {
-		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", book.ReleaseDate.Format("2006-01-02"), book.Title, book.URL))
-	}
-
-	markdown := fmt.Sprintf("## 合計 %d冊\n%s", len(books), strings.Join(lines, "\n"))
-
-	return utils.UpdateGist(gistID, gistFilename, markdown)
 }
 
 func clearUpcomingBooksIfUnchanged(cfg aws.Config, upcomingBooks []utils.KindleBook) error {

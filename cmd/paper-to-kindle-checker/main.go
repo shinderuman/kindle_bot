@@ -18,6 +18,11 @@ import (
 	"kindle_bot/utils"
 )
 
+const (
+	gistID       = "b88ae51c4f1471ad63e44b5c12db1150"
+	gistFilename = "紙書籍予約中なのでKindle書籍予約開始を待ってる本.md"
+)
+
 var (
 	paapiMaxRetryCount         = 5
 	cycleDays          float64 = 1
@@ -128,7 +133,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 		}
 
 		*book = utils.MakeBook(item, 0)
-		if err := savePaperBooks(cfg, books); err != nil {
+		if err := savePaperBooksAndUpdateGist(cfg, books); err != nil {
 			return err
 		}
 	}
@@ -168,7 +173,7 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 			}
 		}
 
-		if err := savePaperBooks(cfg, updatedBooks); err != nil {
+		if err := savePaperBooksAndUpdateGist(cfg, updatedBooks); err != nil {
 			return err
 		}
 	}
@@ -192,13 +197,29 @@ func isComic(item entity.Item) bool {
 	return binding == "コミック" || binding == "単行本"
 }
 
-func savePaperBooks(cfg aws.Config, books []utils.KindleBook) error {
-	uniqueBooks := utils.UniqueASINs(books)
-	utils.SortByReleaseDate(uniqueBooks)
-	if err := utils.SaveASINs(cfg, uniqueBooks, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
-		return fmt.Errorf("failed to save paper books: %w", err)
+func savePaperBooksAndUpdateGist(cfg aws.Config, books []utils.KindleBook) error {
+	books = utils.UniqueASINs(books)
+	utils.SortByReleaseDate(books)
+	if err := savePaperBooks(cfg, books); err != nil {
+		return err
 	}
+
+	if err := utils.UpdateBookGist(gistID, gistFilename, books); err != nil {
+		return fmt.Errorf("failed to update gist: %w", err)
+	}
+
 	return nil
+}
+
+func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
+	return fmt.Sprintf(
+		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+		kindle.ItemInfo.Title.DisplayValue,
+		paper.CurrentPrice,
+		paper.URL,
+		(*kindle.Offers.Listings)[0].Price.Amount,
+		kindle.DetailPageURL,
+	)
 }
 
 func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
@@ -226,6 +247,13 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.Kindl
 	return nil, nil
 }
 
+func savePaperBooks(cfg aws.Config, books []utils.KindleBook) error {
+	if err := utils.SaveASINs(cfg, books, utils.EnvConfig.S3PaperBooksObjectKey); err != nil {
+		return fmt.Errorf("failed to save paper books: %w", err)
+	}
+	return nil
+}
+
 func cleanTitle(title string) string {
 	return strings.TrimSpace(titleCleanRegex.Split(title, 2)[0])
 }
@@ -242,15 +270,4 @@ func isSameKindleBook(paper utils.KindleBook, kindle entity.Item) bool {
 	}
 	return paper.ReleaseDate.Format("2006-01-02") ==
 		kindle.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02")
-}
-
-func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
-	return fmt.Sprintf(
-		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
-		kindle.ItemInfo.Title.DisplayValue,
-		paper.CurrentPrice,
-		paper.URL,
-		(*kindle.Offers.Listings)[0].Price.Amount,
-		kindle.DetailPageURL,
-	)
 }
