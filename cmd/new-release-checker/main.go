@@ -99,7 +99,7 @@ func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
 	}
 
 	format := utils.GetCountFormat(len(authors))
-	log.Printf(fmt.Sprintf("%s / %s: %%s", format, format), index+1, len(authors), authors[index].Name)
+	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s", format, format), index+1, len(authors), authors[index].Name)
 	return authors, index, nil
 }
 

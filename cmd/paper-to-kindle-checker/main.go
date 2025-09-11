@@ -91,7 +91,7 @@ func getBookToProcess(cfg aws.Config) ([]utils.KindleBook, int, error) {
 	}
 
 	format := utils.GetCountFormat(len(books))
-	log.Printf(fmt.Sprintf("%s / %s: %%s", format, format), index+1, len(books), books[index].Title)
+	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s", format, format), index+1, len(books), books[index].Title)
 	return books, index, nil
 }
 
