@@ -32,9 +32,11 @@ var (
 )
 
 type Author struct {
-	Name              string    `json:"Name"`
-	URL               string    `json:"URL"`
-	LatestReleaseDate time.Time `json:"LatestReleaseDate"`
+	Name               string    `json:"Name"`
+	URL                string    `json:"URL"`
+	LatestReleaseDate  time.Time `json:"LatestReleaseDate"`
+	LatestReleaseTitle string    `json:"LatestReleaseTitle"`
+	LatestReleaseURL   string    `json:"LatestReleaseURL"`
 }
 
 func main() {
@@ -247,9 +249,10 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 	}
 	releaseDate := i.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Time
 
-	// 発売日がこれまでの最大値より新しい場合、更新する
 	if releaseDate.After(author.LatestReleaseDate) {
 		author.LatestReleaseDate = releaseDate
+		author.LatestReleaseTitle = i.ItemInfo.Title.DisplayValue
+		author.LatestReleaseURL = i.DetailPageURL
 	}
 
 	if releaseDate.Before(now) {
