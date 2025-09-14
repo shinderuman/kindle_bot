@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -252,7 +253,7 @@ func shouldSkip(i entity.Item, author *Author, notifiedMap map[string]utils.Kind
 	if releaseDate.After(author.LatestReleaseDate) {
 		author.LatestReleaseDate = releaseDate
 		author.LatestReleaseTitle = i.ItemInfo.Title.DisplayValue
-		author.LatestReleaseURL = i.DetailPageURL
+		author.LatestReleaseURL = cleanURL(i.DetailPageURL)
 	}
 
 	if releaseDate.Before(now) {
@@ -269,6 +270,18 @@ func isNameMatched(author *Author, i entity.Item) bool {
 		}
 	}
 	return false
+}
+
+func cleanURL(rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+
+	parsedURL.RawQuery = ""
+	parsedURL.Fragment = ""
+
+	return parsedURL.String()
 }
 
 func normalizeName(name string) string {
