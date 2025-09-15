@@ -126,8 +126,12 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 
 		item := items.ItemsResult.Items[0]
 		if !isComic(item) {
-			return fmt.Errorf(
-				"the item category is not a コミック.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+			return fmt.Errorf(strings.TrimSpace(`
+the item category is not a コミック.
+ASIN: %s
+Title: %s
+Category: %s
+URL: %s`),
 				item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
 			)
 		}
@@ -182,8 +186,10 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
 }
 
 func formatProcessError(operation string, index int, books []utils.KindleBook, err error) error {
-	return fmt.Errorf(
-		"%s: %03d / %03d\nhttps://www.amazon.co.jp/dp/%s\n%v",
+	return fmt.Errorf(strings.TrimSpace(`
+%s: %03d / %03d
+https://www.amazon.co.jp/dp/%s
+%v`),
 		operation,
 		index+1,
 		len(books),
@@ -212,8 +218,10 @@ func savePaperBooksAndUpdateGist(cfg aws.Config, books []utils.KindleBook) error
 }
 
 func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
-	return fmt.Sprintf(
-		"📚 新刊予定があります: %s\n📕 紙書籍(%.0f円): %s\n📱 電子書籍(%.0f円): %s",
+	return fmt.Sprintf(strings.TrimSpace(`
+📚 新刊予定があります: %s
+📕 紙書籍(%.0f円): %s
+📱 電子書籍(%.0f円): %s`),
 		kindle.ItemInfo.Title.DisplayValue,
 		paper.CurrentPrice,
 		paper.URL,

@@ -132,8 +132,12 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 
 	for _, item := range resp.ItemsResult.Items {
 		if !isKindle(item) {
-			utils.AlertToSlack(fmt.Errorf(
-				"the item category is not a Kindle版.\nASIN: %s\nTitle: %s\nCategory: %s\nURL: %s",
+			utils.AlertToSlack(fmt.Errorf(strings.TrimSpace(`
+the item category is not a Kindle版.
+ASIN: %s
+Title: %s
+Category: %s
+URL: %s`),
 				item.ASIN, item.ItemInfo.Title.DisplayValue, item.ItemInfo.Classifications.Binding.DisplayValue, item.DetailPageURL,
 			), false)
 			continue
@@ -142,8 +146,11 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 		book := utils.GetBook(item.ASIN, segmentBooks)
 
 		if item.Offers == nil || item.Offers.Listings == nil || len(*item.Offers.Listings) == 0 || (*item.Offers.Listings)[0].Price == nil {
-			utils.AlertToSlack(fmt.Errorf(
-				"price information not available for item.\nASIN: %s\nTitle: %s\nURL: %s",
+			utils.AlertToSlack(fmt.Errorf(strings.TrimSpace(`
+price information not available for item.
+ASIN: %s
+Title: %s
+URL: %s`),
 				item.ASIN, item.ItemInfo.Title.DisplayValue, item.DetailPageURL,
 			), false)
 
@@ -180,8 +187,14 @@ func checkMissingASINs(requestedBooks []utils.KindleBook, responseItems []entity
 
 	for _, book := range requestedBooks {
 		if !responseASINs[book.ASIN] {
-			utils.AlertToSlack(fmt.Errorf(
-				"book not found in GetItems response.\nASIN: %s\nTitle: %s\nRelease Date: %s\nURL: %s\nRequested count: %d\nResponse count: %d",
+			utils.AlertToSlack(fmt.Errorf(strings.TrimSpace(`
+book not found in GetItems response.
+ASIN: %s
+Title: %s
+Release Date: %s
+URL: %s
+Requested count: %d
+Response count: %d`),
 				book.ASIN, book.Title, book.ReleaseDate.Format("2006-01-02"), book.URL, len(requestedBooks), len(responseItems),
 			), false)
 		}

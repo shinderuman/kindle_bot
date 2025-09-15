@@ -150,7 +150,12 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 			continue
 		}
 
-		utils.LogAndNotify(fmt.Sprintf("📚 新刊予定があります: %s\n作者: %s\n発売日: %s\nASIN: %s\n%s",
+		utils.LogAndNotify(fmt.Sprintf(strings.TrimSpace(`
+📚 新刊予定があります: %s
+作者: %s
+発売日: %s
+ASIN: %s
+%s`),
 			item.ItemInfo.Title.DisplayValue,
 			author.Name,
 			item.ItemInfo.ProductInfo.ReleaseDate.DisplayValue.Format("2006-01-02"),
