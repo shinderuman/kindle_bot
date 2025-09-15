@@ -127,6 +127,9 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 	}
 
 	utils.PutMetric(cfg, "KindleBot/SaleChecker", "APISuccess")
+
+	checkMissingASINs(segmentBooks, resp.ItemsResult.Items)
+
 	for _, item := range resp.ItemsResult.Items {
 		if !isKindle(item) {
 			utils.AlertToSlack(fmt.Errorf(
@@ -163,6 +166,26 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 
 func isKindle(item entity.Item) bool {
 	return item.ItemInfo.Classifications.Binding.DisplayValue == "Kindle版"
+}
+
+func checkMissingASINs(requestedBooks []utils.KindleBook, responseItems []entity.Item) {
+	if len(requestedBooks) == len(responseItems) {
+		return
+	}
+
+	responseASINs := make(map[string]bool)
+	for _, item := range responseItems {
+		responseASINs[item.ASIN] = true
+	}
+
+	for _, book := range requestedBooks {
+		if !responseASINs[book.ASIN] {
+			utils.AlertToSlack(fmt.Errorf(
+				"book not found in GetItems response.\nASIN: %s\nTitle: %s\nRelease Date: %s\nURL: %s\nRequested count: %d\nResponse count: %d",
+				book.ASIN, book.Title, book.ReleaseDate.Format("2006-01-02"), book.URL, len(requestedBooks), len(responseItems),
+			), false)
+		}
+	}
 }
 
 func extractSaleConditions(item entity.Item, maxPrice float64) []string {
