@@ -158,7 +158,7 @@ URL: %s`),
 		}
 
 		upcomingMap := make(map[string]utils.KindleBook)
-		b := utils.MakeBook(*kindleItem, 0)
+		b := utils.MakeBook(*kindleItem, book.MaxPrice)
 		notifiedMap[kindleItem.ASIN] = b
 		upcomingMap[kindleItem.ASIN] = b
 
