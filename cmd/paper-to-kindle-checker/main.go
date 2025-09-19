@@ -200,7 +200,7 @@ https://www.amazon.co.jp/dp/%s
 
 func isComic(item entity.Item) bool {
 	binding := item.ItemInfo.Classifications.Binding.DisplayValue
-	return binding == "コミック" || binding == "単行本"
+	return binding == "コミック" || binding == "単行本" || binding == "ペーパーバック"
 }
 
 func savePaperBooksAndUpdateGist(cfg aws.Config, books []utils.KindleBook) error {
