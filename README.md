@@ -113,13 +113,20 @@ kindle_bot/
 
 ## Execution Intervals and Configuration Management
 
-### Recommended Execution Intervals
+### Execution Architecture
 
-| Program | CloudWatch Interval | Internal Cycle | Purpose |
-|---------|-------------------|----------------|---------|
-| `new-release-checker` | 1 minute | 7 days (weekly) | Check for new releases from authors |
-| `paper-to-kindle-checker` | 1 minute | 1 day (daily) | Check if paper books have Kindle editions |
-| `sale-checker` | Any interval | Sequential processing | Monitor Kindle book sales with 10-book batches |
+All programs use a unified execution architecture:
+- **CloudWatch Events**: Set to run every minute (1 minute interval)
+- **Internal Control**: Each program uses configuration-based interval control
+- **Benefits**: Dynamic interval adjustment without Lambda cron changes
+
+### Default Configuration Intervals
+
+| Program | Default Interval | Configuration Field | Purpose |
+|---------|-----------------|-------------------|---------|
+| `new-release-checker` | 7 days | `CycleDays` | Check for new releases from authors |
+| `paper-to-kindle-checker` | 1 day | `CycleDays` | Check if paper books have Kindle editions |
+| `sale-checker` | 2 minutes | `ExecutionIntervalMinutes` | Monitor Kindle book sales with 10-book batches |
 
 ### Configuration Management
 
@@ -136,6 +143,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
   "SaleChecker": {
     "GistID": "your-sale-checker-gist-id",
     "GistFilename": "sale-books.md",
+    "ExecutionIntervalMinutes": 2,
     "GetItemsPaapiRetryCount": 3,
     "GetItemsInitialRetrySeconds": 30
   },
@@ -165,6 +173,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 **sale-checker**
 - `GistID` - GitHub Gist ID for sale book list
 - `GistFilename` - Gist filename for sale book list
+- `ExecutionIntervalMinutes` (default: 2) - Execution interval in minutes (must be divisor of 60)
 - `GetItemsPaapiRetryCount` (default: 3) - PA-API retry count for GetItems requests
 - `GetItemsInitialRetrySeconds` (default: 30) - Initial retry delay for GetItems requests
 
@@ -370,13 +379,20 @@ kindle_bot/
 
 ## 実行間隔と設定管理
 
-### 推奨実行間隔
+### 実行アーキテクチャ
 
-| プログラム | CloudWatch間隔 | 内部サイクル | 目的 |
-|-----------|---------------|-------------|------|
-| `new-release-checker` | 1分 | 7日（週次） | 著者の新刊チェック |
-| `paper-to-kindle-checker` | 1分 | 1日（日次） | 紙書籍のKindle版チェック |
-| `sale-checker` | 任意の間隔 | 順次処理 | Kindle本のセール監視（10件ずつバッチ処理） |
+全プログラムで統一された実行アーキテクチャを使用：
+- **CloudWatch Events**: 毎分実行に設定（1分間隔）
+- **内部制御**: 各プログラムが設定ベースの間隔制御を使用
+- **利点**: Lambdaのcron設定変更なしで動的な間隔調整が可能
+
+### デフォルト設定間隔
+
+| プログラム | デフォルト間隔 | 設定フィールド | 目的 |
+|-----------|---------------|---------------|------|
+| `new-release-checker` | 7日 | `CycleDays` | 著者の新刊チェック |
+| `paper-to-kindle-checker` | 1日 | `CycleDays` | 紙書籍のKindle版チェック |
+| `sale-checker` | 2分 | `ExecutionIntervalMinutes` | Kindle本のセール監視（10件ずつバッチ処理） |
 
 ### 設定管理
 
@@ -393,6 +409,7 @@ kindle_bot/
   "SaleChecker": {
     "GistID": "your-sale-checker-gist-id",
     "GistFilename": "sale-books.md",
+    "ExecutionIntervalMinutes": 2,
     "GetItemsPaapiRetryCount": 3,
     "GetItemsInitialRetrySeconds": 30
   },
@@ -422,6 +439,7 @@ kindle_bot/
 **sale-checker**
 - `GistID` - セール書籍リスト用のGitHub Gist ID
 - `GistFilename` - セール書籍リスト用のGistファイル名
+- `ExecutionIntervalMinutes` (デフォルト: 2) - 実行間隔（分単位、60の約数である必要がある）
 - `GetItemsPaapiRetryCount` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
 - `GetItemsInitialRetrySeconds` (デフォルト: 30) - GetItemsリクエストの初期リトライ遅延秒数
 
