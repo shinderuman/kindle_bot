@@ -111,7 +111,7 @@ kindle_bot/
 └── config.json.example                    # Configuration template
 ```
 
-## Execution Intervals and Environment Variables
+## Execution Intervals and Configuration Management
 
 ### Recommended Execution Intervals
 
@@ -121,25 +121,70 @@ kindle_bot/
 | `paper-to-kindle-checker` | 1 minute | 1 day (daily) | Check if paper books have Kindle editions |
 | `sale-checker` | Any interval | Sequential processing | Monitor Kindle book sales with 10-book batches |
 
-### Environment Variables
+### Configuration Management
 
-Each program supports environment variables to customize execution behavior:
+Each program uses S3-based JSON configuration for dynamic settings management:
 
-#### new-release-checker
-- `NEW_RELEASE_PAAPI_RETRY_COUNT` (default: 3) - SearchItems API retry count for author searches
-- `NEW_RELEASE_CYCLE_DAYS` (default: 7.0) - Cycle duration in days for author processing
+#### Configuration File Location
+- **S3 Object Key**: Defined by `S3CheckerConfigObjectKey` in config.json (e.g., "checker_configs.json")
+- **Format**: JSON file containing configuration for all checkers
+- **Benefits**: Dynamic configuration changes without code redeployment
 
-#### paper-to-kindle-checker  
-- `PAPER_TO_KINDLE_PAAPI_RETRY_COUNT` (default: 5) - SearchItems API retry count for Kindle edition searches
-- `PAPER_TO_KINDLE_CYCLE_DAYS` (default: 1.0) - Cycle duration in days for book processing
+#### Example Configuration JSON
+```json
+{
+  "SaleChecker": {
+    "GistID": "your-sale-checker-gist-id",
+    "GistFilename": "sale-books.md",
+    "GetItemsPaapiRetryCount": 3,
+    "GetItemsInitialRetrySeconds": 30
+  },
+  "NewReleaseChecker": {
+    "GistID": "your-new-release-checker-gist-id",
+    "GistFilename": "authors.md",
+    "CycleDays": 7.0,
+    "SearchItemsPaapiRetryCount": 3,
+    "SearchItemsInitialRetrySeconds": 2,
+    "GetItemsPaapiRetryCount": 3,
+    "GetItemsInitialRetrySeconds": 2
+  },
+  "PaperToKindleChecker": {
+    "GistID": "your-paper-to-kindle-checker-gist-id",
+    "GistFilename": "paper-books.md",
+    "CycleDays": 1.0,
+    "SearchItemsPaapiRetryCount": 5,
+    "SearchItemsInitialRetrySeconds": 2,
+    "GetItemsPaapiRetryCount": 5,
+    "GetItemsInitialRetrySeconds": 2
+  }
+}
+```
 
-#### sale-checker
-- No environment variables required
-- Processes 10 books per execution in file order
-- Progress is automatically saved to S3 for continuation
+#### Configuration Structure
 
-#### Global (utils package)
-- `GET_ITEMS_PAAPI_RETRY_COUNT` (default: 3) - PA-API retry count for GetItems requests
+**sale-checker**
+- `GistID` - GitHub Gist ID for sale book list
+- `GistFilename` - Gist filename for sale book list
+- `GetItemsPaapiRetryCount` (default: 3) - PA-API retry count for GetItems requests
+- `GetItemsInitialRetrySeconds` (default: 30) - Initial retry delay for GetItems requests
+
+**new-release-checker**
+- `GistID` - GitHub Gist ID for author list
+- `GistFilename` - Gist filename for author list
+- `CycleDays` (default: 7.0) - Cycle duration in days for author processing
+- `SearchItemsPaapiRetryCount` (default: 3) - SearchItems API retry count for author searches
+- `SearchItemsInitialRetrySeconds` (default: 2) - Initial retry delay for SearchItems requests
+- `GetItemsPaapiRetryCount` (default: 3) - GetItems API retry count
+- `GetItemsInitialRetrySeconds` (default: 2) - Initial retry delay for GetItems requests
+
+**paper-to-kindle-checker**
+- `GistID` - GitHub Gist ID for paper book list
+- `GistFilename` - Gist filename for paper book list
+- `CycleDays` (default: 1.0) - Cycle duration in days for book processing
+- `SearchItemsPaapiRetryCount` (default: 5) - SearchItems API retry count for Kindle edition searches
+- `SearchItemsInitialRetrySeconds` (default: 2) - Initial retry delay for SearchItems requests
+- `GetItemsPaapiRetryCount` (default: 5) - GetItems API retry count
+- `GetItemsInitialRetrySeconds` (default: 2) - Initial retry delay for GetItems requests
 
 ### Sequential Processing (sale-checker)
 
@@ -323,7 +368,7 @@ kindle_bot/
 └── config.json.example                    # 設定ファイルのテンプレート
 ```
 
-## 実行間隔と環境変数
+## 実行間隔と設定管理
 
 ### 推奨実行間隔
 
@@ -333,25 +378,70 @@ kindle_bot/
 | `paper-to-kindle-checker` | 1分 | 1日（日次） | 紙書籍のKindle版チェック |
 | `sale-checker` | 任意の間隔 | 順次処理 | Kindle本のセール監視（10件ずつバッチ処理） |
 
-### 環境変数
+### 設定管理
 
-各プログラムは環境変数で実行動作をカスタマイズできます：
+各プログラムは動的設定管理のためにS3ベースのJSON設定を使用します：
 
-#### new-release-checker
-- `NEW_RELEASE_PAAPI_RETRY_COUNT` (デフォルト: 3) - 著者検索時のSearchItems APIリトライ回数
-- `NEW_RELEASE_CYCLE_DAYS` (デフォルト: 7.0) - 著者処理のサイクル日数
+#### 設定ファイルの場所
+- **S3オブジェクトキー**: config.jsonの`S3CheckerConfigObjectKey`で定義（例: "checker_configs.json"）
+- **形式**: 全checkerの設定を含むJSONファイル
+- **利点**: コードの再デプロイなしで動的な設定変更が可能
 
-#### paper-to-kindle-checker  
-- `PAPER_TO_KINDLE_PAAPI_RETRY_COUNT` (デフォルト: 5) - Kindle版検索時のSearchItems APIリトライ回数
-- `PAPER_TO_KINDLE_CYCLE_DAYS` (デフォルト: 1.0) - 書籍処理のサイクル日数
+#### 設定JSONの例
+```json
+{
+  "SaleChecker": {
+    "GistID": "your-sale-checker-gist-id",
+    "GistFilename": "sale-books.md",
+    "GetItemsPaapiRetryCount": 3,
+    "GetItemsInitialRetrySeconds": 30
+  },
+  "NewReleaseChecker": {
+    "GistID": "your-new-release-checker-gist-id",
+    "GistFilename": "authors.md",
+    "CycleDays": 7.0,
+    "SearchItemsPaapiRetryCount": 3,
+    "SearchItemsInitialRetrySeconds": 2,
+    "GetItemsPaapiRetryCount": 3,
+    "GetItemsInitialRetrySeconds": 2
+  },
+  "PaperToKindleChecker": {
+    "GistID": "your-paper-to-kindle-checker-gist-id",
+    "GistFilename": "paper-books.md",
+    "CycleDays": 1.0,
+    "SearchItemsPaapiRetryCount": 5,
+    "SearchItemsInitialRetrySeconds": 2,
+    "GetItemsPaapiRetryCount": 5,
+    "GetItemsInitialRetrySeconds": 2
+  }
+}
+```
 
-#### sale-checker
-- 環境変数は不要
-- ファイル順で1回につき10件を処理
-- 進捗は自動的にS3に保存され、次回実行時に継続
+#### 設定構造
 
-#### 全体共通 (utilsパッケージ)
-- `GET_ITEMS_PAAPI_RETRY_COUNT` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
+**sale-checker**
+- `GistID` - セール書籍リスト用のGitHub Gist ID
+- `GistFilename` - セール書籍リスト用のGistファイル名
+- `GetItemsPaapiRetryCount` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
+- `GetItemsInitialRetrySeconds` (デフォルト: 30) - GetItemsリクエストの初期リトライ遅延秒数
+
+**new-release-checker**
+- `GistID` - 著者リスト用のGitHub Gist ID
+- `GistFilename` - 著者リスト用のGistファイル名
+- `CycleDays` (デフォルト: 7.0) - 著者処理のサイクル日数
+- `SearchItemsPaapiRetryCount` (デフォルト: 3) - 著者検索時のSearchItems APIリトライ回数
+- `SearchItemsInitialRetrySeconds` (デフォルト: 2) - SearchItemsリクエストの初期リトライ遅延秒数
+- `GetItemsPaapiRetryCount` (デフォルト: 3) - GetItems APIリトライ回数
+- `GetItemsInitialRetrySeconds` (デフォルト: 2) - GetItemsリクエストの初期リトライ遅延秒数
+
+**paper-to-kindle-checker**
+- `GistID` - 紙書籍リスト用のGitHub Gist ID
+- `GistFilename` - 紙書籍リスト用のGistファイル名
+- `CycleDays` (デフォルト: 1.0) - 書籍処理のサイクル日数
+- `SearchItemsPaapiRetryCount` (デフォルト: 5) - Kindle版検索時のSearchItems APIリトライ回数
+- `SearchItemsInitialRetrySeconds` (デフォルト: 2) - SearchItemsリクエストの初期リトライ遅延秒数
+- `GetItemsPaapiRetryCount` (デフォルト: 5) - GetItems APIリトライ回数
+- `GetItemsInitialRetrySeconds` (デフォルト: 2) - GetItemsリクエストの初期リトライ遅延秒数
 
 ### 順次処理 (sale-checker)
 
