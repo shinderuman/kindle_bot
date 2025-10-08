@@ -137,10 +137,16 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 - **Format**: JSON file containing configuration for all checkers
 - **Benefits**: Dynamic configuration changes without code redeployment
 
+#### Dynamic Control Features
+- **Enable/Disable**: Each checker can be individually enabled or disabled using the `Enabled` flag
+- **Maintenance Mode**: Temporarily disable problematic checkers without redeployment
+- **Selective Operation**: Run only specific checkers during testing or troubleshooting
+
 #### Example Configuration JSON
 ```json
 {
   "SaleChecker": {
+    "Enabled": true,
     "GistID": "your-sale-checker-gist-id",
     "GistFilename": "sale-books.md",
     "ExecutionIntervalMinutes": 2,
@@ -148,6 +154,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
     "GetItemsInitialRetrySeconds": 30
   },
   "NewReleaseChecker": {
+    "Enabled": true,
     "GistID": "your-new-release-checker-gist-id",
     "GistFilename": "authors.md",
     "CycleDays": 7.0,
@@ -157,6 +164,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
     "GetItemsInitialRetrySeconds": 2
   },
   "PaperToKindleChecker": {
+    "Enabled": true,
     "GistID": "your-paper-to-kindle-checker-gist-id",
     "GistFilename": "paper-books.md",
     "CycleDays": 1.0,
@@ -171,6 +179,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 #### Configuration Structure
 
 **sale-checker**
+- `Enabled` (default: true) - Enable/disable checker execution
 - `GistID` - GitHub Gist ID for sale book list
 - `GistFilename` - Gist filename for sale book list
 - `ExecutionIntervalMinutes` (default: 2) - Execution interval in minutes (must be divisor of 60)
@@ -178,6 +187,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 - `GetItemsInitialRetrySeconds` (default: 30) - Initial retry delay for GetItems requests
 
 **new-release-checker**
+- `Enabled` (default: true) - Enable/disable checker execution
 - `GistID` - GitHub Gist ID for author list
 - `GistFilename` - Gist filename for author list
 - `CycleDays` (default: 7.0) - Cycle duration in days for author processing
@@ -187,6 +197,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 - `GetItemsInitialRetrySeconds` (default: 2) - Initial retry delay for GetItems requests
 
 **paper-to-kindle-checker**
+- `Enabled` (default: true) - Enable/disable checker execution
 - `GistID` - GitHub Gist ID for paper book list
 - `GistFilename` - Gist filename for paper book list
 - `CycleDays` (default: 1.0) - Cycle duration in days for book processing
@@ -403,10 +414,16 @@ kindle_bot/
 - **形式**: 全checkerの設定を含むJSONファイル
 - **利点**: コードの再デプロイなしで動的な設定変更が可能
 
+#### 動的制御機能
+- **有効/無効制御**: `Enabled`フラグで各checkerを個別に有効/無効化可能
+- **メンテナンスモード**: 問題のあるcheckerを再デプロイなしで一時的に無効化
+- **選択的実行**: テストやトラブルシューティング時に特定のcheckerのみ実行
+
 #### 設定JSONの例
 ```json
 {
   "SaleChecker": {
+    "Enabled": true,
     "GistID": "your-sale-checker-gist-id",
     "GistFilename": "sale-books.md",
     "ExecutionIntervalMinutes": 2,
@@ -414,6 +431,7 @@ kindle_bot/
     "GetItemsInitialRetrySeconds": 30
   },
   "NewReleaseChecker": {
+    "Enabled": true,
     "GistID": "your-new-release-checker-gist-id",
     "GistFilename": "authors.md",
     "CycleDays": 7.0,
@@ -423,6 +441,7 @@ kindle_bot/
     "GetItemsInitialRetrySeconds": 2
   },
   "PaperToKindleChecker": {
+    "Enabled": true,
     "GistID": "your-paper-to-kindle-checker-gist-id",
     "GistFilename": "paper-books.md",
     "CycleDays": 1.0,
@@ -437,6 +456,7 @@ kindle_bot/
 #### 設定構造
 
 **sale-checker**
+- `Enabled` (デフォルト: true) - checkerの実行有効/無効
 - `GistID` - セール書籍リスト用のGitHub Gist ID
 - `GistFilename` - セール書籍リスト用のGistファイル名
 - `ExecutionIntervalMinutes` (デフォルト: 2) - 実行間隔（分単位、60の約数である必要がある）
@@ -444,6 +464,7 @@ kindle_bot/
 - `GetItemsInitialRetrySeconds` (デフォルト: 30) - GetItemsリクエストの初期リトライ遅延秒数
 
 **new-release-checker**
+- `Enabled` (デフォルト: true) - checkerの実行有効/無効
 - `GistID` - 著者リスト用のGitHub Gist ID
 - `GistFilename` - 著者リスト用のGistファイル名
 - `CycleDays` (デフォルト: 7.0) - 著者処理のサイクル日数
@@ -453,6 +474,7 @@ kindle_bot/
 - `GetItemsInitialRetrySeconds` (デフォルト: 2) - GetItemsリクエストの初期リトライ遅延秒数
 
 **paper-to-kindle-checker**
+- `Enabled` (デフォルト: true) - checkerの実行有効/無効
 - `GistID` - 紙書籍リスト用のGitHub Gist ID
 - `GistFilename` - 紙書籍リスト用のGistファイル名
 - `CycleDays` (デフォルト: 1.0) - 書籍処理のサイクル日数
