@@ -42,6 +42,7 @@ type SaleCheckerConfig struct {
 	GistFilename                string `json:"GistFilename"`
 	GetItemsPaapiRetryCount     int    `json:"GetItemsPaapiRetryCount"`
 	GetItemsInitialRetrySeconds int    `json:"GetItemsInitialRetrySeconds"`
+	ExecutionIntervalMinutes    int    `json:"ExecutionIntervalMinutes"`
 }
 
 type NewReleaseCheckerConfig struct {

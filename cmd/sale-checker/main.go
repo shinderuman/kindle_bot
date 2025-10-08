@@ -5,6 +5,7 @@ import (
 	"log"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/goark/pa-api/entity"
@@ -25,6 +26,13 @@ func process() error {
 	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
+	}
+
+	now := time.Now()
+	intervalMinutes := checkerConfigs.SaleChecker.ExecutionIntervalMinutes
+	if intervalMinutes > 0 && now.Minute()%intervalMinutes != 0 {
+		log.Printf("Skipping execution: current minute %d is not divisible by interval %d", now.Minute(), intervalMinutes)
+		return nil
 	}
 
 	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
