@@ -38,14 +38,16 @@ type CheckerConfigs struct {
 }
 
 type SaleCheckerConfig struct {
+	Enabled                     bool   `json:"Enabled"`
 	GistID                      string `json:"GistID"`
 	GistFilename                string `json:"GistFilename"`
+	ExecutionIntervalMinutes    int    `json:"ExecutionIntervalMinutes"`
 	GetItemsPaapiRetryCount     int    `json:"GetItemsPaapiRetryCount"`
 	GetItemsInitialRetrySeconds int    `json:"GetItemsInitialRetrySeconds"`
-	ExecutionIntervalMinutes    int    `json:"ExecutionIntervalMinutes"`
 }
 
 type NewReleaseCheckerConfig struct {
+	Enabled                        bool    `json:"Enabled"`
 	GistID                         string  `json:"GistID"`
 	GistFilename                   string  `json:"GistFilename"`
 	CycleDays                      float64 `json:"CycleDays"`
@@ -56,6 +58,7 @@ type NewReleaseCheckerConfig struct {
 }
 
 type PaperToKindleCheckerConfig struct {
+	Enabled                        bool    `json:"Enabled"`
 	GistID                         string  `json:"GistID"`
 	GistFilename                   string  `json:"GistFilename"`
 	CycleDays                      float64 `json:"CycleDays"`

@@ -36,6 +36,11 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
+	if !checkerConfigs.PaperToKindleChecker.Enabled {
+		log.Printf("PaperToKindleChecker is disabled, skipping execution")
+		return nil
+	}
+
 	books, index, err := getBookToProcess(cfg, checkerConfigs)
 	if err != nil {
 		return err
