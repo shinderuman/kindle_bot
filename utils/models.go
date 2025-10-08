@@ -28,6 +28,40 @@ type Config struct {
 	SlackNoticeChannel                string `json:"SlackNoticeChannel"`
 	SlackErrorChannel                 string `json:"SlackErrorChannel"`
 	GitHubToken                       string `json:"GitHubToken"`
+	S3CheckerConfigObjectKey          string `json:"S3CheckerConfigObjectKey"`
+}
+
+type CheckerConfigs struct {
+	SaleChecker          SaleCheckerConfig          `json:"SaleChecker"`
+	NewReleaseChecker    NewReleaseCheckerConfig    `json:"NewReleaseChecker"`
+	PaperToKindleChecker PaperToKindleCheckerConfig `json:"PaperToKindleChecker"`
+}
+
+type SaleCheckerConfig struct {
+	GistID                      string `json:"GistID"`
+	GistFilename                string `json:"GistFilename"`
+	GetItemsPaapiRetryCount     int    `json:"GetItemsPaapiRetryCount"`
+	GetItemsInitialRetrySeconds int    `json:"GetItemsInitialRetrySeconds"`
+}
+
+type NewReleaseCheckerConfig struct {
+	GistID                         string  `json:"GistID"`
+	GistFilename                   string  `json:"GistFilename"`
+	CycleDays                      float64 `json:"CycleDays"`
+	SearchItemsPaapiRetryCount     int     `json:"SearchItemsPaapiRetryCount"`
+	SearchItemsInitialRetrySeconds int     `json:"SearchItemsInitialRetrySeconds"`
+	GetItemsPaapiRetryCount        int     `json:"GetItemsPaapiRetryCount"`
+	GetItemsInitialRetrySeconds    int     `json:"GetItemsInitialRetrySeconds"`
+}
+
+type PaperToKindleCheckerConfig struct {
+	GistID                         string  `json:"GistID"`
+	GistFilename                   string  `json:"GistFilename"`
+	CycleDays                      float64 `json:"CycleDays"`
+	SearchItemsPaapiRetryCount     int     `json:"SearchItemsPaapiRetryCount"`
+	SearchItemsInitialRetrySeconds int     `json:"SearchItemsInitialRetrySeconds"`
+	GetItemsPaapiRetryCount        int     `json:"GetItemsPaapiRetryCount"`
+	GetItemsInitialRetrySeconds    int     `json:"GetItemsInitialRetrySeconds"`
 }
 
 type KindleBook struct {

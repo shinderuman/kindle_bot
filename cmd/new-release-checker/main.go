@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,15 +20,8 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
-	gistID       = "d5116b8fdce5cdd1995c2a7a3be325f4"
-	gistFilename = "新刊チェック中の作者.md"
-)
-
 var (
-	paapiMaxRetryCount         = 3
-	cycleDays          float64 = 7
-	yearMonthRegex             = regexp.MustCompile(`\d{4}年\d{1,2}月`)
+	yearMonthRegex = regexp.MustCompile(`\d{4}年\d{1,2}月`)
 )
 
 type Author struct {
@@ -50,9 +42,12 @@ func process() error {
 		return err
 	}
 
-	initEnvironmentVariables()
+	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checker configs: %w", err)
+	}
 
-	authors, index, err := getAuthorToProcess(cfg)
+	authors, index, err := getAuthorToProcess(cfg, checkerConfigs)
 	if err != nil {
 		return err
 	}
@@ -64,7 +59,7 @@ func process() error {
 		return err
 	}
 
-	if err = processCore(cfg, authors, index); err != nil {
+	if err = processCore(cfg, authors, index, checkerConfigs); err != nil {
 		return err
 	}
 
@@ -73,27 +68,13 @@ func process() error {
 	return nil
 }
 
-func initEnvironmentVariables() {
-	if envRetryCount := os.Getenv("NEW_RELEASE_PAAPI_RETRY_COUNT"); envRetryCount != "" {
-		if count, err := strconv.Atoi(envRetryCount); err == nil && count > 0 {
-			paapiMaxRetryCount = count
-		}
-	}
-
-	if envDays := os.Getenv("NEW_RELEASE_CYCLE_DAYS"); envDays != "" {
-		if days, err := strconv.ParseFloat(envDays, 64); err == nil && days > 0 {
-			cycleDays = days
-		}
-	}
-}
-
-func getAuthorToProcess(cfg aws.Config) ([]Author, int, error) {
+func getAuthorToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([]Author, int, error) {
 	authors, err := fetchAuthors(cfg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
 	}
 
-	index, shouldProcess, err := utils.ProcessSlot(cfg, len(authors), cycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
+	index, shouldProcess, err := utils.ProcessSlot(cfg, len(authors), checkerConfigs.NewReleaseChecker.CycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -118,7 +99,7 @@ func fetchAuthors(cfg aws.Config) ([]Author, error) {
 	return authors, nil
 }
 
-func processCore(cfg aws.Config, authors []Author, index int) error {
+func processCore(cfg aws.Config, authors []Author, index int, checkerConfigs *utils.CheckerConfigs) error {
 	start := time.Now()
 	client := utils.CreateClient()
 	author := &authors[index]
@@ -134,7 +115,7 @@ func processCore(cfg aws.Config, authors []Author, index int) error {
 	}
 
 	upcomingMap := make(map[string]utils.KindleBook)
-	items, err := searchAuthorBooks(cfg, client, author.Name)
+	items, err := searchAuthorBooks(cfg, client, author.Name, checkerConfigs)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotFailure")
 		return formatProcessError(index, authors, err)
@@ -181,7 +162,7 @@ ASIN: %s
 		if err := saveAuthors(cfg, authors); err != nil {
 			return err
 		}
-		if err := updateGist(authors); err != nil {
+		if err := updateGist(authors, checkerConfigs); err != nil {
 			return err
 		}
 	}
@@ -201,7 +182,7 @@ func fetchExcludedTitleKeywords(cfg aws.Config) ([]string, error) {
 	return keywords, nil
 }
 
-func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) ([]entity.Item, error) {
+func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string, checkerConfigs *utils.CheckerConfigs) ([]entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
 		query.Author,
@@ -209,7 +190,7 @@ func searchAuthorBooks(cfg aws.Config, client paapi5.Client, authorName string) 
 		0,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
+	res, err := utils.SearchItems(cfg, client, q, checkerConfigs.NewReleaseChecker.SearchItemsPaapiRetryCount, checkerConfigs.NewReleaseChecker.SearchItemsInitialRetrySeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +321,7 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 	return utils.PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), utils.EnvConfig.S3AuthorsObjectKey)
 }
 
-func updateGist(authors []Author) error {
+func updateGist(authors []Author, checkerConfigs *utils.CheckerConfigs) error {
 	var lines []string
 	for _, author := range authors {
 		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", author.LatestReleaseDate.Format("2006-01-02"), author.Name, author.URL))
@@ -348,5 +329,5 @@ func updateGist(authors []Author) error {
 
 	markdown := fmt.Sprintf("## 合計 %d人(最新の単行本発売日降順)\n%s", len(authors), strings.Join(lines, "\n"))
 
-	return utils.UpdateGist(gistID, gistFilename, markdown)
+	return utils.UpdateGist(checkerConfigs.NewReleaseChecker.GistID, checkerConfigs.NewReleaseChecker.GistFilename, markdown)
 }

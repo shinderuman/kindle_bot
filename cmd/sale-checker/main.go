@@ -12,11 +12,6 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
-	gistID       = "571a55fc0f9e56156cae277ded0cf09c"
-	gistFilename = "わいのセールになってほしい本.md"
-)
-
 func main() {
 	utils.Run(process)
 }
@@ -25,6 +20,11 @@ func process() error {
 	cfg, err := utils.InitAWSConfig()
 	if err != nil {
 		return err
+	}
+
+	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
 	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
@@ -40,7 +40,7 @@ func process() error {
 	allBooks := utils.UniqueASINs(append(originalBooks, upcomingBooks...))
 	segmentBooks, startIndex, endIndex := getNextProcessingSegment(cfg, allBooks)
 
-	processedBooks, err := checkBooksForSales(cfg, segmentBooks)
+	processedBooks, err := checkBooksForSales(cfg, segmentBooks, checkerConfigs)
 	if err != nil {
 		return fmt.Errorf("PA API processing failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func process() error {
 		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
 
-	if err := utils.UpdateBookGist(gistID, gistFilename, updatedBooks); err != nil {
+	if err := utils.UpdateBookGist(checkerConfigs.SaleChecker.GistID, checkerConfigs.SaleChecker.GistFilename, updatedBooks); err != nil {
 		return fmt.Errorf("error update gist: %s", err)
 	}
 
@@ -111,7 +111,7 @@ func getLastProcessedIndex(cfg aws.Config) int {
 	return index
 }
 
-func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]utils.KindleBook, error) {
+func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook, checkerConfigs *utils.CheckerConfigs) ([]utils.KindleBook, error) {
 	client := utils.CreateClient()
 
 	var processedBooks []utils.KindleBook
@@ -120,7 +120,7 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook) ([]util
 	for _, book := range segmentBooks {
 		asins = append(asins, book.ASIN)
 	}
-	resp, err := utils.GetItems(cfg, client, asins, 30)
+	resp, err := utils.GetItems(cfg, client, asins, checkerConfigs.SaleChecker.GetItemsInitialRetrySeconds, checkerConfigs.SaleChecker.GetItemsPaapiRetryCount)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/SaleChecker", "APIFailure")
 		return segmentBooks, err

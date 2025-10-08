@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,15 +17,8 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
-	gistID       = "b88ae51c4f1471ad63e44b5c12db1150"
-	gistFilename = "紙書籍予約中なのでKindle書籍予約開始を待ってる本.md"
-)
-
 var (
-	paapiMaxRetryCount         = 5
-	cycleDays          float64 = 1
-	titleCleanRegex            = regexp.MustCompile(`[\(\)（）【】〔〕：:]|\s*[0-9０-９]`)
+	titleCleanRegex = regexp.MustCompile(`[\(\)（）【】〔〕：:]|\s*[0-9０-９]`)
 )
 
 func main() {
@@ -39,9 +31,12 @@ func process() error {
 		return err
 	}
 
-	initEnvironmentVariables()
+	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch checker configs: %w", err)
+	}
 
-	books, index, err := getBookToProcess(cfg)
+	books, index, err := getBookToProcess(cfg, checkerConfigs)
 	if err != nil {
 		return err
 	}
@@ -53,7 +48,7 @@ func process() error {
 		return err
 	}
 
-	if err = processCore(cfg, books, index); err != nil {
+	if err = processCore(cfg, books, index, checkerConfigs); err != nil {
 		return err
 	}
 
@@ -62,27 +57,13 @@ func process() error {
 	return nil
 }
 
-func initEnvironmentVariables() {
-	if envRetryCount := os.Getenv("PAPER_TO_KINDLE_PAAPI_RETRY_COUNT"); envRetryCount != "" {
-		if count, err := strconv.Atoi(envRetryCount); err == nil && count > 0 {
-			paapiMaxRetryCount = count
-		}
-	}
-
-	if envDays := os.Getenv("PAPER_TO_KINDLE_CYCLE_DAYS"); envDays != "" {
-		if days, err := strconv.ParseFloat(envDays, 64); err == nil && days > 0 {
-			cycleDays = days
-		}
-	}
-}
-
-func getBookToProcess(cfg aws.Config) ([]utils.KindleBook, int, error) {
+func getBookToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([]utils.KindleBook, int, error) {
 	books, err := fetchPaperBooks(cfg)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch paper books: %w", err)
 	}
 
-	index, shouldProcess, err := utils.ProcessSlot(cfg, len(books), cycleDays, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
+	index, shouldProcess, err := utils.ProcessSlot(cfg, len(books), checkerConfigs.PaperToKindleChecker.CycleDays, utils.EnvConfig.S3PrevIndexPaperToKindleObjectKey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -107,12 +88,12 @@ func fetchPaperBooks(cfg aws.Config) ([]utils.KindleBook, error) {
 	return books, nil
 }
 
-func processCore(cfg aws.Config, books []utils.KindleBook, index int) error {
+func processCore(cfg aws.Config, books []utils.KindleBook, index int, checkerConfigs *utils.CheckerConfigs) error {
 	client := utils.CreateClient()
 	book := &books[index]
 
 	if book.CurrentPrice == 0 {
-		items, err := utils.GetItems(cfg, client, []string{book.ASIN}, 2)
+		items, err := utils.GetItems(cfg, client, []string{book.ASIN}, checkerConfigs.PaperToKindleChecker.GetItemsInitialRetrySeconds, checkerConfigs.PaperToKindleChecker.GetItemsPaapiRetryCount)
 		if err != nil {
 			utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
 			return formatProcessError("getItems", index, books, err)
@@ -137,12 +118,12 @@ URL: %s`),
 		}
 
 		*book = utils.MakeBook(item, 0)
-		if err := savePaperBooksAndUpdateGist(cfg, books); err != nil {
+		if err := savePaperBooksAndUpdateGist(cfg, books, checkerConfigs); err != nil {
 			return err
 		}
 	}
 
-	kindleItem, err := searchKindleEdition(cfg, client, *book)
+	kindleItem, err := searchKindleEdition(cfg, client, *book, checkerConfigs)
 	if err != nil {
 		utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "APIFailure")
 		return formatProcessError("searchKindleEdition", index, books, err)
@@ -177,7 +158,7 @@ URL: %s`),
 			}
 		}
 
-		if err := savePaperBooksAndUpdateGist(cfg, updatedBooks); err != nil {
+		if err := savePaperBooksAndUpdateGist(cfg, updatedBooks, checkerConfigs); err != nil {
 			return err
 		}
 	}
@@ -203,14 +184,14 @@ func isComic(item entity.Item) bool {
 	return binding == "コミック" || binding == "単行本" || binding == "ペーパーバック"
 }
 
-func savePaperBooksAndUpdateGist(cfg aws.Config, books []utils.KindleBook) error {
+func savePaperBooksAndUpdateGist(cfg aws.Config, books []utils.KindleBook, checkerConfigs *utils.CheckerConfigs) error {
 	books = utils.UniqueASINs(books)
 	utils.SortByReleaseDate(books)
 	if err := savePaperBooks(cfg, books); err != nil {
 		return err
 	}
 
-	if err := utils.UpdateBookGist(gistID, gistFilename, books); err != nil {
+	if err := utils.UpdateBookGist(checkerConfigs.PaperToKindleChecker.GistID, checkerConfigs.PaperToKindleChecker.GistFilename, books); err != nil {
 		return fmt.Errorf("failed to update gist: %w", err)
 	}
 
@@ -230,7 +211,7 @@ func formatSlackMessage(paper utils.KindleBook, kindle entity.Item) string {
 	)
 }
 
-func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook) (*entity.Item, error) {
+func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.KindleBook, checkerConfigs *utils.CheckerConfigs) (*entity.Item, error) {
 	q := utils.CreateSearchQuery(
 		client,
 		query.Title,
@@ -238,7 +219,7 @@ func searchKindleEdition(cfg aws.Config, client paapi5.Client, paper utils.Kindl
 		paper.CurrentPrice+20000,
 	)
 
-	res, err := utils.SearchItems(cfg, client, q, paapiMaxRetryCount)
+	res, err := utils.SearchItems(cfg, client, q, checkerConfigs.PaperToKindleChecker.SearchItemsPaapiRetryCount, checkerConfigs.PaperToKindleChecker.SearchItemsInitialRetrySeconds)
 	if err != nil {
 		return nil, err
 	}

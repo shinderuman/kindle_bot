@@ -40,9 +40,8 @@ import (
 var (
 	EnvConfig Config
 
-	getItemsPAAPIRetryCount = 3
-	configInitErr           error
-	once                    sync.Once
+	configInitErr error
+	once          sync.Once
 )
 
 func Run(process func() error) {
@@ -97,6 +96,7 @@ func initConfig() error {
 				S3PrevIndexNewReleaseObjectKey:    paramMap["S3_PREV_INDEX_NEW_RELEASE_OBJECT_KEY"],
 				S3PrevIndexPaperToKindleObjectKey: paramMap["S3_PREV_INDEX_PAPER_TO_KINDLE_OBJECT_KEY"],
 				S3PrevIndexSaleCheckerObjectKey:   paramMap["S3_PREV_INDEX_SALE_CHECKER_OBJECT_KEY"],
+				S3CheckerConfigObjectKey:          paramMap["S3_CHECKER_CONFIG_OBJECT_KEY"],
 				S3Region:                          paramMap["S3_REGION"],
 				AmazonPartnerTag:                  paramMap["AMAZON_PARTNER_TAG"],
 				AmazonAccessKey:                   paramMap["AMAZON_ACCESS_KEY"],
@@ -122,17 +122,7 @@ func initConfig() error {
 		}
 	}
 
-	initEnvironmentVariables()
-
 	return configInitErr
-}
-
-func initEnvironmentVariables() {
-	if envRetryCount := os.Getenv("GET_ITEMS_PAAPI_RETRY_COUNT"); envRetryCount != "" {
-		if count, err := strconv.Atoi(envRetryCount); err == nil && count > 0 {
-			getItemsPAAPIRetryCount = count
-		}
-	}
 }
 
 func getSSMParameters(ctx context.Context, prefix string, withDecryption bool) (map[string]string, error) {
@@ -269,6 +259,20 @@ func FetchASINs(cfg aws.Config, objectKey string) ([]KindleBook, error) {
 	return ASINs, nil
 }
 
+func FetchCheckerConfigs(cfg aws.Config) (*CheckerConfigs, error) {
+	body, err := GetS3Object(cfg, EnvConfig.S3CheckerConfigObjectKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var configs CheckerConfigs
+	if err := json.Unmarshal(body, &configs); err != nil {
+		return nil, err
+	}
+
+	return &configs, nil
+}
+
 func UniqueASINs(slice []KindleBook) []KindleBook {
 	seen := make(map[string]struct{})
 	result := []KindleBook{}
@@ -323,13 +327,13 @@ func MakeBook(item entity.Item, maxPrice float64) KindleBook {
 	return book
 }
 
-func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string, initialRetrySeconds int) (*entity.Response, error) {
+func GetItems(cfg aws.Config, client paapi5.Client, asinChunk []string, initialRetrySeconds int, retryCount int) (*entity.Response, error) {
 	q := query.NewGetItems(client.Marketplace(), client.PartnerTag(), client.PartnerType()).
 		ASINs(asinChunk).
 		EnableItemInfo().
 		EnableOffers()
 
-	body, err := requestWithBackoff(cfg, client, q, getItemsPAAPIRetryCount, initialRetrySeconds)
+	body, err := requestWithBackoff(cfg, client, q, retryCount, initialRetrySeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +363,8 @@ func CreateSearchQuery(client paapi5.Client, searchKey query.RequestFilter, sear
 	return q
 }
 
-func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int) (*entity.Response, error) {
-	body, err := requestWithBackoff(cfg, client, q, maxRetryCount, 2)
+func SearchItems(cfg aws.Config, client paapi5.Client, q *query.SearchItems, maxRetryCount int, initialRetrySeconds int) (*entity.Response, error) {
+	body, err := requestWithBackoff(cfg, client, q, maxRetryCount, initialRetrySeconds)
 	if err != nil {
 		return nil, err
 	}
