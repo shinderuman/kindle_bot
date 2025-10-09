@@ -88,7 +88,7 @@ func getAuthorToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([
 	}
 
 	format := utils.GetCountFormat(len(authors))
-	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s, next execution: %s", format, format, nextExecutionTime.Format("2006-01-02 15:04:05")), index+1, len(authors), authors[index].Name)
+	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s, next execution: %s", format, format, utils.FormatTimeJST(nextExecutionTime)), index+1, len(authors), authors[index].Name)
 	return authors, index, nil
 }
 
