@@ -79,7 +79,7 @@ func getAuthorToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([
 		return nil, 0, fmt.Errorf("failed to fetch authors: %w", err)
 	}
 
-	index, shouldProcess, err := utils.ProcessSlot(cfg, len(authors), checkerConfigs.NewReleaseChecker.CycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
+	index, shouldProcess, nextExecutionTime, err := utils.ProcessSlot(cfg, len(authors), checkerConfigs.NewReleaseChecker.CycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -88,7 +88,7 @@ func getAuthorToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([
 	}
 
 	format := utils.GetCountFormat(len(authors))
-	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s", format, format), index+1, len(authors), authors[index].Name)
+	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s, next execution: %s", format, format, nextExecutionTime.Format("2006-01-02 15:04:05")), index+1, len(authors), authors[index].Name)
 	return authors, index, nil
 }
 

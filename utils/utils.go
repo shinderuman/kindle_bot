@@ -496,37 +496,59 @@ func SaveASINs(cfg aws.Config, ASINs []KindleBook, objectKey string) error {
 	return PutS3Object(cfg, strings.ReplaceAll(string(prettyJSON), `\u0026`, "&"), objectKey)
 }
 
-func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey string) (int, bool, error) {
+func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey string) (int, bool, time.Time, error) {
 	if itemCount == 0 {
-		return 0, false, fmt.Errorf("no items available")
+		return 0, false, time.Time{}, fmt.Errorf("no items available")
 	}
 
-	index := getIndexByTime(itemCount, cycleDays)
+	index, nextExecutionTime := getIndexAndNextExecutionTime(itemCount, cycleDays)
 	format := GetCountFormat(itemCount)
 
 	prevIndexBytes, err := GetS3Object(cfg, prevIndexKey)
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to fetch prev_index: %w", err)
+		return 0, false, time.Time{}, fmt.Errorf("failed to fetch prev_index: %w", err)
 	}
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
-		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s)", format, format)
+		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s), next execution: %s", format, format, nextExecutionTime.Format("2006-01-02 15:04:05"))
 		log.Printf(skipLogFormat, index+1, itemCount)
-		return index, false, nil
+		return index, false, nextExecutionTime, nil
 	}
 
-	return index, true, nil
+	return index, true, nextExecutionTime, nil
 }
 
-func getIndexByTime(itemCount int, cycleDays float64) int {
+func getIndexAndNextExecutionTime(itemCount int, cycleDays float64) (int, time.Time) {
 	if itemCount <= 0 {
-		return 0
+		return 0, time.Now()
 	}
 
 	secondsPerCycle := int64(cycleDays * 24 * 60 * 60)
-	sec := time.Now().Unix() % secondsPerCycle
-	return int(sec * int64(itemCount) / secondsPerCycle)
+	nowUnix := time.Now().Unix()
+	secondsInCycle := nowUnix % secondsPerCycle
+
+	index := getIndexFromCycleTime(itemCount, secondsPerCycle, secondsInCycle)
+	nextExecutionTime := getNextExecutionTime(index, itemCount, secondsPerCycle, nowUnix-secondsInCycle, nowUnix)
+
+	return index, nextExecutionTime
+}
+
+func getIndexFromCycleTime(itemCount int, secondsPerCycle int64, secondsInCycle int64) int {
+	return int(secondsInCycle * int64(itemCount) / secondsPerCycle)
+}
+
+func getNextExecutionTime(currentIndex, itemCount int, secondsPerCycle int64, cycleStartUnix int64, nowUnix int64) time.Time {
+	nextIndex := (currentIndex + 1) % itemCount
+	nextSlotStartInCycle := int64(nextIndex) * secondsPerCycle / int64(itemCount)
+
+	nextExecutionUnix := cycleStartUnix + nextSlotStartInCycle
+
+	if nextExecutionUnix <= nowUnix {
+		nextExecutionUnix += secondsPerCycle
+	}
+
+	return time.Unix(nextExecutionUnix, 0)
 }
 
 func GetCountFormat(itemCount int) string {
