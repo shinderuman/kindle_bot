@@ -32,9 +32,10 @@ type Config struct {
 }
 
 type CheckerConfigs struct {
-	SaleChecker          SaleCheckerConfig          `json:"SaleChecker"`
-	NewReleaseChecker    NewReleaseCheckerConfig    `json:"NewReleaseChecker"`
-	PaperToKindleChecker PaperToKindleCheckerConfig `json:"PaperToKindleChecker"`
+	SlackNotificationEnabled bool                       `json:"SlackNotificationEnabled"`
+	SaleChecker              SaleCheckerConfig          `json:"SaleChecker"`
+	NewReleaseChecker        NewReleaseCheckerConfig    `json:"NewReleaseChecker"`
+	PaperToKindleChecker     PaperToKindleCheckerConfig `json:"PaperToKindleChecker"`
 }
 
 type SaleCheckerConfig struct {
