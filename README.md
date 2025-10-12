@@ -145,6 +145,7 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 #### Example Configuration JSON
 ```json
 {
+  "SlackNotificationEnabled": true,
   "SaleChecker": {
     "Enabled": true,
     "GistID": "your-sale-checker-gist-id",
@@ -177,6 +178,9 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 ```
 
 #### Configuration Structure
+
+**Global Settings**
+- `SlackNotificationEnabled` (default: true) - Enable/disable all Slack notifications system-wide
 
 **sale-checker**
 - `Enabled` (default: true) - Enable/disable checker execution
@@ -422,6 +426,7 @@ kindle_bot/
 #### 設定JSONの例
 ```json
 {
+  "SlackNotificationEnabled": true,
   "SaleChecker": {
     "Enabled": true,
     "GistID": "your-sale-checker-gist-id",
@@ -454,6 +459,9 @@ kindle_bot/
 ```
 
 #### 設定構造
+
+**グローバル設定**
+- `SlackNotificationEnabled` (デフォルト: true) - システム全体のSlack通知の有効/無効
 
 **sale-checker**
 - `Enabled` (デフォルト: true) - checkerの実行有効/無効
