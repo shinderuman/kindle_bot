@@ -40,9 +40,9 @@ import (
 var (
 	EnvConfig Config
 
-	configInitErr            error
-	once                     sync.Once
-	slackNotificationEnabled bool = true
+	configInitErr error
+	once          sync.Once
+	reportFailure bool = true
 )
 
 func Run(process func() error) {
@@ -54,7 +54,11 @@ func Run(process func() error) {
 	handler := func(ctx context.Context) (string, error) {
 		err := process()
 		if err != nil {
-			AlertToSlack(err, false)
+			if reportFailure {
+				AlertToSlack(err, false)
+			} else {
+				err = nil
+			}
 		}
 		return "Processing complete: " + getFilename(), err
 	}
@@ -271,7 +275,7 @@ func FetchCheckerConfigs(cfg aws.Config) (*CheckerConfigs, error) {
 		return nil, err
 	}
 
-	slackNotificationEnabled = configs.SlackNotificationEnabled
+	reportFailure = configs.ReportFailure
 
 	return &configs, nil
 }
@@ -584,10 +588,6 @@ func AlertToSlack(err error, withMention bool) error {
 }
 
 func PostToSlack(message string, targetChannel string) error {
-	if !slackNotificationEnabled {
-		return nil
-	}
-
 	api := slack.New(EnvConfig.SlackBotToken)
 
 	_, _, err := api.PostMessage(
