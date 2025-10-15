@@ -28,16 +28,18 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
-	if !checkerConfigs.SaleChecker.Enabled {
+	if !checkerConfigs.SaleChecker.Enabled && utils.IsLambda() {
 		log.Printf("SaleChecker is disabled, skipping execution")
 		return nil
 	}
 
-	now := time.Now()
-	intervalMinutes := checkerConfigs.SaleChecker.ExecutionIntervalMinutes
-	if intervalMinutes > 0 && now.Minute()%intervalMinutes != 0 {
-		log.Printf("Skipping execution: current minute %d is not divisible by interval %d", now.Minute(), intervalMinutes)
-		return nil
+	if utils.IsLambda() {
+		now := time.Now()
+		intervalMinutes := checkerConfigs.SaleChecker.ExecutionIntervalMinutes
+		if intervalMinutes > 0 && now.Minute()%intervalMinutes != 0 {
+			log.Printf("Skipping execution: current minute %d is not divisible by interval %d", now.Minute(), intervalMinutes)
+			return nil
+		}
 	}
 
 	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)

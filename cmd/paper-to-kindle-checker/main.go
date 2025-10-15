@@ -36,7 +36,7 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
-	if !checkerConfigs.PaperToKindleChecker.Enabled {
+	if !checkerConfigs.PaperToKindleChecker.Enabled && utils.IsLambda() {
 		log.Printf("PaperToKindleChecker is disabled, skipping execution")
 		return nil
 	}

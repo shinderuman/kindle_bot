@@ -509,6 +509,11 @@ func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey 
 	}
 
 	index, nextExecutionTime := getIndexAndNextExecutionTime(itemCount, cycleDays)
+
+	if !IsLambda() {
+		return index, true, nextExecutionTime, nil
+	}
+
 	format := GetCountFormat(itemCount)
 
 	prevIndexBytes, err := GetS3Object(cfg, prevIndexKey)

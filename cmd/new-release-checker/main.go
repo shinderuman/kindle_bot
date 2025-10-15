@@ -47,7 +47,7 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
-	if !checkerConfigs.NewReleaseChecker.Enabled {
+	if !checkerConfigs.NewReleaseChecker.Enabled && utils.IsLambda() {
 		log.Printf("NewReleaseChecker is disabled, skipping execution")
 		return nil
 	}
