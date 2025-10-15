@@ -77,7 +77,7 @@ func getBookToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([]u
 	}
 
 	format := utils.GetCountFormat(len(books))
-	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s, next execution: %s", format, format, utils.FormatTimeJST(nextExecutionTime)), index+1, len(books), books[index].Title)
+	log.Printf(fmt.Sprintf("Processing slot (%s / %s): %%s, next execution: %s (%s)", format, format, utils.FormatTimeJST(nextExecutionTime), utils.FormatExecutionInterval(nextExecutionTime)), index+1, len(books), books[index].Title)
 	return books, index, nil
 }
 

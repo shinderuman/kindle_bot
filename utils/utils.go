@@ -523,7 +523,7 @@ func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey 
 	prevIndex, _ := strconv.Atoi(string(prevIndexBytes))
 
 	if prevIndex == index {
-		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s), next execution: %s", format, format, FormatTimeJST(nextExecutionTime))
+		skipLogFormat := fmt.Sprintf("Not my slot, skipping (%s / %s), next execution: %s (%s)", format, format, FormatTimeJST(nextExecutionTime), FormatExecutionInterval(nextExecutionTime))
 		log.Printf(skipLogFormat, index+1, itemCount)
 		return index, false, nextExecutionTime, nil
 	}
@@ -565,6 +565,10 @@ func getNextExecutionTime(currentIndex, itemCount int, secondsPerCycle int64, cy
 
 func FormatTimeJST(t time.Time) string {
 	return t.In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02 15:04:05")
+}
+
+func FormatExecutionInterval(nextExecutionTime time.Time) string {
+	return fmt.Sprintf("%.3f min", time.Until(nextExecutionTime).Minutes())
 }
 
 func GetCountFormat(itemCount int) string {
