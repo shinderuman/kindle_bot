@@ -97,6 +97,10 @@ func processCore(cfg aws.Config, books []utils.KindleBook, index int, checkerCon
 	client := utils.CreateClient()
 	book := &books[index]
 
+	if book.ASIN == "" {
+		return fmt.Errorf("empty ASIN found in paper book at index %d: Title=%s, URL=%s", index, book.Title, book.URL)
+	}
+
 	if book.CurrentPrice == 0 {
 		items, err := utils.GetItems(cfg, client, []string{book.ASIN}, checkerConfigs.PaperToKindleChecker.GetItemsInitialRetrySeconds, checkerConfigs.PaperToKindleChecker.GetItemsPaapiRetryCount)
 		if err != nil {

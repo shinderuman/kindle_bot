@@ -109,6 +109,10 @@ func processCore(cfg aws.Config, authors []Author, index int, checkerConfigs *ut
 	client := utils.CreateClient()
 	author := &authors[index]
 
+	if author.Name == "" {
+		return fmt.Errorf("empty name found in author at index %d: URL=%s", index, author.URL)
+	}
+
 	notifiedMap, err := utils.FetchNotifiedASINs(cfg, start)
 	if err != nil {
 		return err

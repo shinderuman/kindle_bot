@@ -133,6 +133,10 @@ func checkBooksForSales(cfg aws.Config, segmentBooks []utils.KindleBook, checker
 
 	var asins []string
 	for _, book := range segmentBooks {
+		if book.ASIN == "" {
+			utils.AlertToSlack(fmt.Errorf("empty ASIN found in book: Title=%s, URL=%s", book.Title, book.URL), false)
+			continue
+		}
 		asins = append(asins, book.ASIN)
 	}
 	resp, err := utils.GetItems(cfg, client, asins, checkerConfigs.SaleChecker.GetItemsInitialRetrySeconds, checkerConfigs.SaleChecker.GetItemsPaapiRetryCount)
