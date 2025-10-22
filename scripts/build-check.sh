@@ -5,7 +5,7 @@
 
 echo "Building all commands..."
 
-commands=("new-release-checker" "paper-to-kindle-checker" "sale-checker")
+commands=("new-release-checker" "paper-to-kindle-checker" "sale-checker" "release-notifier")
 failed_commands=()
 
 for cmd in "${commands[@]}"; do

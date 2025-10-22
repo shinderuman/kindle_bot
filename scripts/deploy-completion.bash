@@ -8,7 +8,7 @@ _deploy_completion() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     
     # Available function names
-    local functions="paper-to-kindle-checker new-release-checker sale-checker all"
+    local functions="paper-to-kindle-checker new-release-checker sale-checker release-notifier all"
     
     # Available options
     local options="-b --build-only -h --help"
@@ -22,7 +22,7 @@ _deploy_completion() {
     
     # Check if previous argument was a function name
     case "${prev}" in
-        paper-to-kindle-checker|new-release-checker|sale-checker|all)
+        paper-to-kindle-checker|new-release-checker|sale-checker|release-notifier|all)
             # Complete options after function name
             COMPREPLY=( $(compgen -W "${options}" -- ${cur}) )
             return 0

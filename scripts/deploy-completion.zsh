@@ -7,13 +7,13 @@ _deploy_completion() {
     
     # Define the completion specification
     _arguments -C \
-        '1:function:(paper-to-kindle-checker new-release-checker sale-checker all)' \
+        '1:function:(paper-to-kindle-checker new-release-checker sale-checker release-notifier all)' \
         '*::options:->options' && return 0
     
     case $state in
         options)
             case $words[2] in
-                paper-to-kindle-checker|new-release-checker|sale-checker|all)
+                paper-to-kindle-checker|new-release-checker|sale-checker|release-notifier|all)
                     _arguments \
                         '(-b --build-only)'{-b,--build-only}'[Only build, do not deploy]' \
                         '(-h --help)'{-h,--help}'[Show help message]'

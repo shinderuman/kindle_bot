@@ -24,6 +24,7 @@ Available functions:
   paper-to-kindle-checker   Deploy paper-to-kindle-checker
   new-release-checker       Deploy new-release-checker
   sale-checker              Deploy sale-checker
+  release-notifier          Deploy release-notifier
   all                       Deploy all functions
 
 Options:
@@ -270,6 +271,10 @@ parse_arguments() {
                 FUNCTION="sale-checker"
                 shift
                 ;;
+            release-notifier)
+                FUNCTION="release-notifier"
+                shift
+                ;;
             all)
                 FUNCTION="all"
                 shift
@@ -310,11 +315,15 @@ deploy_selected_function() {
         sale-checker)
             process_function "cmd/sale-checker/main.go" "$SALE_CHECKER" "$BUILD_ONLY"
             ;;
+        release-notifier)
+            process_function "cmd/release-notifier/main.go" "$RELEASE_NOTIFIER" "$BUILD_ONLY"
+            ;;
         all)
             echo "Deploying all functions..."
             process_function "cmd/paper-to-kindle-checker/main.go" "$PAPER_TO_KINDLE_CHECKER" "$BUILD_ONLY"
             process_function "cmd/new-release-checker/main.go" "$NEW_RELEASE_CHECKER" "$BUILD_ONLY"
             process_function "cmd/sale-checker/main.go" "$SALE_CHECKER" "$BUILD_ONLY"
+            process_function "cmd/release-notifier/main.go" "$RELEASE_NOTIFIER" "$BUILD_ONLY"
             ;;
     esac
 }
