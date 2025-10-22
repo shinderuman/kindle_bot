@@ -7,6 +7,7 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
 * Checks if paper books now have Kindle editions (via `cmd/paper-to-kindle-checker`)
 * Detects sale prices of Kindle books (via `cmd/sale-checker`)
 * Finds new releases from favorite authors (via `cmd/new-release-checker`)
+* Notifies about books released today (via `cmd/release-notifier`)
 * Posts updates to Mastodon
 * Sends alerts to Slack
 * Stores data in S3 and tracks metrics in CloudWatch
@@ -62,6 +63,7 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
    ./scripts/deploy.sh paper-to-kindle-checker
    ./scripts/deploy.sh new-release-checker
    ./scripts/deploy.sh sale-checker
+   ./scripts/deploy.sh release-notifier
    
    # Deploy all functions at once
    ./scripts/deploy.sh all
@@ -69,6 +71,7 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
    # Build only (without deployment)
    ./scripts/deploy.sh paper-to-kindle-checker -b
    ./scripts/deploy.sh new-release-checker --build-only
+   ./scripts/deploy.sh release-notifier -b
    ```
 
 6. **Enable tab completion (optional):**
@@ -83,7 +86,7 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
    echo "source $(pwd)/scripts/deploy-completion.bash" >> ~/.bashrc
    
    # Now you can use tab completion:
-   # ./scripts/deploy.sh <TAB> -> shows: paper-to-kindle-checker, new-release-checker, sale-checker, all
+   # ./scripts/deploy.sh <TAB> -> shows: paper-to-kindle-checker, new-release-checker, sale-checker, release-notifier, all
    # ./scripts/deploy.sh paper-to-kindle-checker <TAB> -> shows: -b, --build-only, -h, --help
    ```
 
@@ -97,6 +100,8 @@ kindle_bot/
 │   ├── new-release-checker/               # New release monitoring
 │   │   └── main.go
 │   ├── paper-to-kindle-checker/           # Paper to Kindle conversion checker
+│   │   └── main.go
+│   ├── release-notifier/                  # Daily release notifications
 │   │   └── main.go
 │   └── sale-checker/                      # Sale monitoring
 │       └── main.go
@@ -126,6 +131,7 @@ All programs use a unified execution architecture:
 |---------|-----------------|-------------------|---------|
 | `new-release-checker` | 7 days | `CycleDays` | Check for new releases from authors |
 | `paper-to-kindle-checker` | 1 day | `CycleDays` | Check if paper books have Kindle editions |
+| `release-notifier` | Daily | Manual execution | Notify about books released today |
 | `sale-checker` | 2 minutes | `ExecutionIntervalMinutes` | Monitor Kindle book sales with 10-book batches |
 
 ### Configuration Management
@@ -241,6 +247,9 @@ go run ./cmd/new-release-checker
 # Run paper to kindle checker
 go run ./cmd/paper-to-kindle-checker
 
+# Run release notifier
+go run ./cmd/release-notifier
+
 # Run sale checker
 go run ./cmd/sale-checker
 ```
@@ -253,6 +262,7 @@ Build applications using the deployment script (recommended):
 # Build individual functions for Lambda deployment
 ./scripts/deploy.sh paper-to-kindle-checker --build-only
 ./scripts/deploy.sh new-release-checker -b
+./scripts/deploy.sh release-notifier --build-only
 ./scripts/deploy.sh sale-checker --build-only
 
 # Build all functions at once
@@ -265,11 +275,13 @@ Or build manually:
 # Build for local use
 go build ./cmd/new-release-checker
 go build ./cmd/paper-to-kindle-checker
+go build ./cmd/release-notifier
 go build ./cmd/sale-checker
 
 # Build for Lambda deployment (Linux)
 GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
 GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+GOOS=linux GOARCH=amd64 go build -o release-notifier ./cmd/release-notifier
 GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
 ```
 
@@ -288,6 +300,7 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
 * 紙書籍に Kindle 版が出たかを検出（`cmd/paper-to-kindle-checker`）
 * Kindle 本の値下げを検出（`cmd/sale-checker`）
 * 著者の新刊 Kindle 本を検出（`cmd/new-release-checker`）
+* 本日発売された書籍を通知（`cmd/release-notifier`）
 * Mastodon への投稿
 * Slack への通知
 * S3 によるデータ保存、CloudWatch によるメトリクス記録
@@ -342,6 +355,7 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
    # 個別の関数をデプロイ
    ./scripts/deploy.sh paper-to-kindle-checker
    ./scripts/deploy.sh new-release-checker
+   ./scripts/deploy.sh release-notifier
    ./scripts/deploy.sh sale-checker
    
    # 全関数を一括デプロイ
@@ -350,6 +364,7 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
    # ビルドのみ（デプロイなし）
    ./scripts/deploy.sh paper-to-kindle-checker -b
    ./scripts/deploy.sh new-release-checker --build-only
+   ./scripts/deploy.sh release-notifier -b
    ```
 
 6. **タブ補完を有効にする（オプション）:**
@@ -364,7 +379,7 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
    echo "source $(pwd)/scripts/deploy-completion.bash" >> ~/.bashrc
    
    # これでタブ補完が使用可能:
-   # ./scripts/deploy.sh <TAB> -> paper-to-kindle-checker, new-release-checker, sale-checker, all が表示
+   # ./scripts/deploy.sh <TAB> -> paper-to-kindle-checker, new-release-checker, release-notifier, sale-checker, all が表示
    # ./scripts/deploy.sh paper-to-kindle-checker <TAB> -> -b, --build-only, -h, --help が表示
    ```
 
@@ -378,6 +393,8 @@ kindle_bot/
 │   ├── new-release-checker/               # 新刊監視
 │   │   └── main.go
 │   ├── paper-to-kindle-checker/           # 紙書籍→Kindle版チェッカー
+│   │   └── main.go
+│   ├── release-notifier/                  # 本日発売通知
 │   │   └── main.go
 │   └── sale-checker/                      # セール監視
 │       └── main.go
@@ -407,6 +424,7 @@ kindle_bot/
 |-----------|---------------|---------------|------|
 | `new-release-checker` | 7日 | `CycleDays` | 著者の新刊チェック |
 | `paper-to-kindle-checker` | 1日 | `CycleDays` | 紙書籍のKindle版チェック |
+| `release-notifier` | 日次 | 手動実行 | 本日発売書籍の通知 |
 | `sale-checker` | 2分 | `ExecutionIntervalMinutes` | Kindle本のセール監視（10件ずつバッチ処理） |
 
 ### 設定管理
@@ -522,6 +540,9 @@ go run ./cmd/new-release-checker
 # 紙書籍→Kindle版チェッカーを実行
 go run ./cmd/paper-to-kindle-checker
 
+# 本日発売通知を実行
+go run ./cmd/release-notifier
+
 # セールチェッカーを実行
 go run ./cmd/sale-checker
 ```
@@ -534,6 +555,7 @@ go run ./cmd/sale-checker
 # 個別の関数をLambdaデプロイ用にビルド
 ./scripts/deploy.sh paper-to-kindle-checker --build-only
 ./scripts/deploy.sh new-release-checker -b
+./scripts/deploy.sh release-notifier --build-only
 ./scripts/deploy.sh sale-checker --build-only
 
 # 全関数を一括ビルド
@@ -546,11 +568,13 @@ go run ./cmd/sale-checker
 # ローカル用ビルド
 go build ./cmd/new-release-checker
 go build ./cmd/paper-to-kindle-checker
+go build ./cmd/release-notifier
 go build ./cmd/sale-checker
 
 # Lambda デプロイ用ビルド（Linux）
 GOOS=linux GOARCH=amd64 go build -o new-release-checker ./cmd/new-release-checker
 GOOS=linux GOARCH=amd64 go build -o paper-to-kindle-checker ./cmd/paper-to-kindle-checker
+GOOS=linux GOARCH=amd64 go build -o release-notifier ./cmd/release-notifier
 GOOS=linux GOARCH=amd64 go build -o sale-checker ./cmd/sale-checker
 ```
 
