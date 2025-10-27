@@ -658,7 +658,7 @@ func UpdateBookGist(gistID, filename string, books []KindleBook) error {
 		if strings.Contains(title, "モンスターコミックス") {
 			title = title + " 👹"
 		}
-		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", book.ReleaseDate.Format("2006-01-02"), title, book.URL))
+		lines = append(lines, fmt.Sprintf("* [[%s]%s (%.0f円)](%s)", book.ReleaseDate.Format("2006-01-02"), title, book.CurrentPrice, book.URL))
 	}
 
 	markdown := fmt.Sprintf("## 合計 %d冊\n%s", len(books), strings.Join(lines, "\n"))

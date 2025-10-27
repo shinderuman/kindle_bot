@@ -333,7 +333,12 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 func updateGist(authors []Author, checkerConfigs *utils.CheckerConfigs) error {
 	var lines []string
 	for _, author := range authors {
-		lines = append(lines, fmt.Sprintf("* [[%s]%s](%s)", author.LatestReleaseDate.Format("2006-01-02"), author.Name, author.URL))
+		lines = append(lines, fmt.Sprintf("* [[%s][%s](%s) - [%s](%s)",
+			author.LatestReleaseDate.Format("2006-01-02"),
+			author.Name,
+			author.URL,
+			author.LatestReleaseTitle,
+			author.LatestReleaseURL))
 	}
 
 	markdown := fmt.Sprintf("## 合計 %d人(最新の単行本発売日降順)\n%s", len(authors), strings.Join(lines, "\n"))
