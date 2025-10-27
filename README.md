@@ -5,7 +5,7 @@ A set of AWS Lambda functions written in Go that monitors and notifies about Kin
 ## Features
 
 * Checks if paper books now have Kindle editions (via `cmd/paper-to-kindle-checker`)
-* Detects sale prices of Kindle books (via `cmd/sale-checker`)
+* Detects sale prices and price changes of Kindle books (via `cmd/sale-checker`)
 * Finds new releases from favorite authors (via `cmd/new-release-checker`)
 * Notifies about books released today (via `cmd/release-notifier`)
 * Posts updates to Mastodon
@@ -132,7 +132,7 @@ All programs use a unified execution architecture:
 | `new-release-checker` | 7 days | `CycleDays` | Check for new releases from authors |
 | `paper-to-kindle-checker` | 1 day | `CycleDays` | Check if paper books have Kindle editions |
 | `release-notifier` | Daily | Manual execution | Notify about books released today |
-| `sale-checker` | 2 minutes | `ExecutionIntervalMinutes` | Monitor Kindle book sales with 10-book batches |
+| `sale-checker` | 2 minutes | `ExecutionIntervalMinutes` | Monitor Kindle book sales and price changes with 10-book batches |
 
 ### Configuration Management
 
@@ -158,7 +158,10 @@ Each program uses S3-based JSON configuration for dynamic settings management:
     "GistFilename": "sale-books.md",
     "ExecutionIntervalMinutes": 2,
     "GetItemsPaapiRetryCount": 3,
-    "GetItemsInitialRetrySeconds": 30
+    "GetItemsInitialRetrySeconds": 30,
+    "SaleThreshold": 151,
+    "PointPercent": 20,
+    "PriceChangeAmount": 50
   },
   "NewReleaseChecker": {
     "Enabled": true,
@@ -195,6 +198,9 @@ Each program uses S3-based JSON configuration for dynamic settings management:
 - `ExecutionIntervalMinutes` (default: 2) - Execution interval in minutes (must be divisor of 60)
 - `GetItemsPaapiRetryCount` (default: 3) - PA-API retry count for GetItems requests
 - `GetItemsInitialRetrySeconds` (default: 30) - Initial retry delay for GetItems requests
+- `SaleThreshold` (default: 151) - Threshold for sale detection (price difference and loyalty points)
+- `PointPercent` (default: 20) - Threshold for point return percentage
+- `PriceChangeAmount` (default: 50) - Threshold for price change notifications (yen)
 
 **new-release-checker**
 - `Enabled` (default: true) - Enable/disable checker execution
@@ -298,7 +304,7 @@ Go で書かれた AWS Lambda 関数のセットで、PA-API を利用して Kin
 ## 主な機能
 
 * 紙書籍に Kindle 版が出たかを検出（`cmd/paper-to-kindle-checker`）
-* Kindle 本の値下げを検出（`cmd/sale-checker`）
+* Kindle 本の値下げと価格変動を検出（`cmd/sale-checker`）
 * 著者の新刊 Kindle 本を検出（`cmd/new-release-checker`）
 * 本日発売された書籍を通知（`cmd/release-notifier`）
 * Mastodon への投稿
@@ -425,7 +431,7 @@ kindle_bot/
 | `new-release-checker` | 7日 | `CycleDays` | 著者の新刊チェック |
 | `paper-to-kindle-checker` | 1日 | `CycleDays` | 紙書籍のKindle版チェック |
 | `release-notifier` | 日次 | 手動実行 | 本日発売書籍の通知 |
-| `sale-checker` | 2分 | `ExecutionIntervalMinutes` | Kindle本のセール監視（10件ずつバッチ処理） |
+| `sale-checker` | 2分 | `ExecutionIntervalMinutes` | Kindle本のセール・価格変動監視（10件ずつバッチ処理） |
 
 ### 設定管理
 
@@ -451,7 +457,10 @@ kindle_bot/
     "GistFilename": "sale-books.md",
     "ExecutionIntervalMinutes": 2,
     "GetItemsPaapiRetryCount": 3,
-    "GetItemsInitialRetrySeconds": 30
+    "GetItemsInitialRetrySeconds": 30,
+    "SaleThreshold": 151,
+    "PointPercent": 20,
+    "PriceChangeAmount": 50
   },
   "NewReleaseChecker": {
     "Enabled": true,
@@ -488,6 +497,9 @@ kindle_bot/
 - `ExecutionIntervalMinutes` (デフォルト: 2) - 実行間隔（分単位、60の約数である必要がある）
 - `GetItemsPaapiRetryCount` (デフォルト: 3) - GetItemsリクエストのPA-APIリトライ回数
 - `GetItemsInitialRetrySeconds` (デフォルト: 30) - GetItemsリクエストの初期リトライ遅延秒数
+- `SaleThreshold` (デフォルト: 151) - セール検出の閾値（価格差・ポイント数）
+- `PointPercent` (デフォルト: 20) - ポイント還元率の閾値
+- `PriceChangeAmount` (デフォルト: 50) - 価格変動通知の閾値（円）
 
 **new-release-checker**
 - `Enabled` (デフォルト: true) - checkerの実行有効/無効
