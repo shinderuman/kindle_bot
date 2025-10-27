@@ -13,6 +13,12 @@ import (
 	"kindle_bot/utils"
 )
 
+const (
+	saleThreshold     = 151
+	pointPercent      = 20
+	priceChangeAmount = 50
+)
+
 func main() {
 	utils.Run(process)
 }
@@ -185,6 +191,9 @@ URL: %s`),
 			utils.LogAndNotify(formatSlackMessage(item, conditions), true)
 		} else {
 			updatedBook := utils.MakeBook(item, maxPrice)
+			if priceChangeMsg := checkPriceChange(book, updatedBook); priceChangeMsg != "" {
+				utils.LogAndNotify(priceChangeMsg, true)
+			}
 			processedBooks = append(processedBooks, updatedBook)
 		}
 	}
@@ -227,14 +236,14 @@ func extractSaleConditions(item entity.Item, maxPrice float64) []string {
 	loyaltyPoints := (*item.Offers.Listings)[0].LoyaltyPoints.Points
 
 	var conditions []string
-	if priceDiff := maxPrice - currentPrice; priceDiff >= 151 {
+	if priceDiff := maxPrice - currentPrice; priceDiff >= saleThreshold {
 		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", priceDiff))
 	}
-	if loyaltyPoints >= 151 {
+	if loyaltyPoints >= saleThreshold {
 		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", loyaltyPoints))
 	}
-	if pointPercent := float64(loyaltyPoints) / currentPrice * 100; pointPercent >= 20 {
-		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", pointPercent))
+	if pointPercentValue := float64(loyaltyPoints) / currentPrice * 100; pointPercentValue >= pointPercent {
+		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", pointPercentValue))
 	}
 
 	return conditions
@@ -247,6 +256,20 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 		strings.Join(conditions, " "),
 		item.DetailPageURL,
 	)
+}
+
+func checkPriceChange(oldBook, newBook utils.KindleBook) string {
+	priceDiff := newBook.CurrentPrice - oldBook.CurrentPrice
+
+	baseMessage := fmt.Sprintf("%s\n価格変動: %.0f円 → %.0f円 (%.0f円)\n%s",
+		newBook.Title, oldBook.CurrentPrice, newBook.CurrentPrice, priceDiff, newBook.URL)
+	if priceDiff >= priceChangeAmount {
+		return "📈 プチ値上がり情報: " + baseMessage
+	} else if priceDiff <= -priceChangeAmount {
+		return "📉 プチ値下がり情報: " + baseMessage
+	} else {
+		return ""
+	}
 }
 
 func replaceProcessedSegment(allBooks, processedBooks []utils.KindleBook, startIndex, endIndex int) []utils.KindleBook {
