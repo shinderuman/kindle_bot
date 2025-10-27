@@ -73,6 +73,8 @@ func process() error {
 	}
 
 	log.Println("Changes detected in book data, proceeding with file updates")
+	logBookChanges(originalBooks, updatedBooks)
+
 	if err := utils.SaveASINs(cfg, updatedBooks, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
 		return fmt.Errorf("failed to save unprocessed ASINs: %w", err)
 	}
@@ -252,6 +254,37 @@ func replaceProcessedSegment(allBooks, processedBooks []utils.KindleBook, startI
 	result = append(result, processedBooks...)
 	result = append(result, allBooks[endIndex:]...)
 	return result
+}
+
+func logBookChanges(originalBooks, updatedBooks []utils.KindleBook) {
+	originalMap := make(map[string]utils.KindleBook)
+	for _, book := range originalBooks {
+		originalMap[book.ASIN] = book
+	}
+
+	for _, newBook := range updatedBooks {
+		oldBook, exists := originalMap[newBook.ASIN]
+		if !exists {
+			continue
+		}
+
+		compareAndLogBookChanges(oldBook, newBook)
+	}
+}
+func compareAndLogBookChanges(oldBook, newBook utils.KindleBook) {
+	oldVal := reflect.ValueOf(oldBook)
+	newVal := reflect.ValueOf(newBook)
+	bookType := reflect.TypeOf(oldBook)
+
+	for i := 0; i < bookType.NumField(); i++ {
+		field := bookType.Field(i)
+		oldField := oldVal.Field(i).Interface()
+		newField := newVal.Field(i).Interface()
+
+		if !reflect.DeepEqual(oldField, newField) {
+			log.Printf("[%s] %s - %s changed: %v → %v", newBook.ASIN, newBook.Title, field.Name, oldField, newField)
+		}
+	}
 }
 
 func clearUpcomingBooksIfUnchanged(cfg aws.Config, upcomingBooks []utils.KindleBook) error {
