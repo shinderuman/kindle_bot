@@ -13,12 +13,6 @@ import (
 	"kindle_bot/utils"
 )
 
-const (
-	saleThreshold     = 151
-	pointPercent      = 20
-	priceChangeAmount = 50
-)
-
 func main() {
 	utils.Run(process)
 }
@@ -187,11 +181,11 @@ URL: %s`),
 
 		maxPrice := max(book.MaxPrice, (*item.Offers.Listings)[0].Price.Amount)
 
-		if conditions := extractSaleConditions(item, maxPrice); len(conditions) > 0 {
+		if conditions := extractSaleConditions(item, maxPrice, checkerConfigs); len(conditions) > 0 {
 			utils.LogAndNotify(formatSlackMessage(item, conditions), true)
 		} else {
 			updatedBook := utils.MakeBook(item, maxPrice)
-			if priceChangeMsg := checkPriceChange(book, updatedBook); priceChangeMsg != "" {
+			if priceChangeMsg := checkPriceChange(book, updatedBook, checkerConfigs); priceChangeMsg != "" {
 				utils.LogAndNotify(priceChangeMsg, true)
 			}
 			processedBooks = append(processedBooks, updatedBook)
@@ -231,18 +225,18 @@ Response count: %d`),
 	}
 }
 
-func extractSaleConditions(item entity.Item, maxPrice float64) []string {
+func extractSaleConditions(item entity.Item, maxPrice float64, checkerConfigs *utils.CheckerConfigs) []string {
 	currentPrice := (*item.Offers.Listings)[0].Price.Amount
 	loyaltyPoints := (*item.Offers.Listings)[0].LoyaltyPoints.Points
 
 	var conditions []string
-	if priceDiff := maxPrice - currentPrice; priceDiff >= saleThreshold {
+	if priceDiff := maxPrice - currentPrice; priceDiff >= float64(checkerConfigs.SaleChecker.SaleThreshold) {
 		conditions = append(conditions, fmt.Sprintf("✅ 最高額との価格差 %.0f円", priceDiff))
 	}
-	if loyaltyPoints >= saleThreshold {
+	if loyaltyPoints >= checkerConfigs.SaleChecker.SaleThreshold {
 		conditions = append(conditions, fmt.Sprintf("✅ ポイント %dpt", loyaltyPoints))
 	}
-	if pointPercentValue := float64(loyaltyPoints) / currentPrice * 100; pointPercentValue >= pointPercent {
+	if pointPercentValue := float64(loyaltyPoints) / currentPrice * 100; pointPercentValue >= float64(checkerConfigs.SaleChecker.PointPercent) {
 		conditions = append(conditions, fmt.Sprintf("✅ ポイント還元 %.1f%%", pointPercentValue))
 	}
 
@@ -258,14 +252,14 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 	)
 }
 
-func checkPriceChange(oldBook, newBook utils.KindleBook) string {
+func checkPriceChange(oldBook, newBook utils.KindleBook, checkerConfigs *utils.CheckerConfigs) string {
 	priceDiff := newBook.CurrentPrice - oldBook.CurrentPrice
 
 	baseMessage := fmt.Sprintf("%s\n価格変動: %.0f円 → %.0f円 (%.0f円)\n%s",
 		newBook.Title, oldBook.CurrentPrice, newBook.CurrentPrice, priceDiff, newBook.URL)
-	if priceDiff >= priceChangeAmount {
+	if priceDiff >= float64(checkerConfigs.SaleChecker.PriceChangeAmount) {
 		return "📈 プチ値上がり情報: " + baseMessage
-	} else if priceDiff <= -priceChangeAmount {
+	} else if priceDiff <= -float64(checkerConfigs.SaleChecker.PriceChangeAmount) {
 		return "📉 プチ値下がり情報: " + baseMessage
 	} else {
 		return ""

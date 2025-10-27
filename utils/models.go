@@ -44,6 +44,9 @@ type SaleCheckerConfig struct {
 	ExecutionIntervalMinutes    int    `json:"ExecutionIntervalMinutes"`
 	GetItemsPaapiRetryCount     int    `json:"GetItemsPaapiRetryCount"`
 	GetItemsInitialRetrySeconds int    `json:"GetItemsInitialRetrySeconds"`
+	SaleThreshold               int    `json:"SaleThreshold"`
+	PointPercent                int    `json:"PointPercent"`
+	PriceChangeAmount           int    `json:"PriceChangeAmount"`
 }
 
 type NewReleaseCheckerConfig struct {
