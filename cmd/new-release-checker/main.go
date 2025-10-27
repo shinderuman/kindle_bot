@@ -332,11 +332,14 @@ func saveAuthors(cfg aws.Config, authors []Author) error {
 
 func updateGist(authors []Author, checkerConfigs *utils.CheckerConfigs) error {
 	var lines []string
+
+	lines = append(lines, "| 作者 | 最新作 |")
+	lines = append(lines, "|------|--------|")
 	for _, author := range authors {
-		lines = append(lines, fmt.Sprintf("* [[%s][%s](%s) - [%s](%s)",
-			author.LatestReleaseDate.Format("2006-01-02"),
+		lines = append(lines, fmt.Sprintf("| [%s](%s) | [[%s] %s](%s) |",
 			author.Name,
 			author.URL,
+			author.LatestReleaseDate.Format("2006-01-02"),
 			author.LatestReleaseTitle,
 			author.LatestReleaseURL))
 	}
