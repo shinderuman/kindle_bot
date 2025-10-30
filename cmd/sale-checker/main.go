@@ -253,6 +253,10 @@ func formatSlackMessage(item entity.Item, conditions []string) string {
 }
 
 func checkPriceChange(oldBook, newBook utils.KindleBook, checkerConfigs *utils.CheckerConfigs) string {
+	if oldBook.CurrentPrice == 0 {
+		return ""
+	}
+
 	priceDiff := newBook.CurrentPrice - oldBook.CurrentPrice
 
 	baseMessage := fmt.Sprintf("%s\n価格変動: %.0f円 → %.0f円 (%.0f円)\n%s",
