@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net/url"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -47,6 +49,11 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
+	// フラグチェックを早期に行う
+	if shouldShowNext() {
+		return displayNextTarget(cfg, checkerConfigs)
+	}
+
 	if !checkerConfigs.NewReleaseChecker.Enabled && utils.IsLambda() {
 		log.Printf("NewReleaseChecker is disabled, skipping execution")
 		return nil
@@ -71,6 +78,90 @@ func process() error {
 	utils.PutMetric(cfg, "KindleBot/NewReleaseChecker", "SlotSuccess")
 
 	return nil
+}
+
+func shouldShowNext() bool {
+	showNext := flag.Bool("show-next", false, "Show next processing target and insertion simulation")
+	flag.BoolVar(showNext, "n", false, "Show next processing target and insertion simulation (shorthand)")
+	flag.Parse()
+	return *showNext
+}
+
+func displayNextTarget(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) error {
+	authors, err := fetchAuthors(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch authors: %w", err)
+	}
+
+	if len(authors) == 0 {
+		fmt.Println("No authors found")
+		return nil
+	}
+
+	index, _, nextExecutionTime, err := utils.ProcessSlot(cfg, len(authors), checkerConfigs.NewReleaseChecker.CycleDays, utils.EnvConfig.S3PrevIndexNewReleaseObjectKey)
+	if err != nil {
+		return err
+	}
+
+	printNextTargetInfo(authors, index, nextExecutionTime, checkerConfigs.NewReleaseChecker.CycleDays)
+
+	return nil
+}
+
+func printNextTargetInfo(authors []Author, index int, nextExecutionTime time.Time, cycleDays float64) {
+	lineNumber := getAuthorLineNumber(index)
+	currentItemCount := len(authors)
+	simulatedItemCount := currentItemCount + 1
+	simulatedIndex, _ := utils.GetIndexAndNextExecutionTime(simulatedItemCount, cycleDays)
+
+	printBasicInfo(index+1, currentItemCount, float64(index+1)/float64(currentItemCount)*100, authors[index].Name, lineNumber, nextExecutionTime)
+	printSimulationResult(index, simulatedIndex, simulatedIndex+1, simulatedItemCount, authors, lineNumber)
+}
+
+func printBasicInfo(currentPosition, currentItemCount int, currentPercentage float64, authorName string, lineNumber int, nextExecutionTime time.Time) {
+	fmt.Printf(`Next processing target: %d/%d (%.1f%%)
+Author: %s
+Line number: %d
+Next execution: %s
+`,
+		currentPosition, currentItemCount, currentPercentage,
+		authorName,
+		lineNumber,
+		utils.FormatTimeJST(nextExecutionTime))
+}
+
+func printSimulationResult(index, simulatedIndex, simulatedPosition, simulatedItemCount int, authors []Author, lineNumber int) {
+	fmt.Printf(`--- After inserting a new author ---
+Next processing target would be: %d/%d
+`,
+		simulatedPosition, simulatedItemCount)
+
+	if simulatedIndex == index {
+		fmt.Printf(`✅ Safe: Insert at index %d (line %d)
+New author will be processed in the next execution
+`,
+			index, lineNumber)
+	} else {
+		fmt.Printf(`⚠️  WARNING: Timeline shift detected!
+Current plan: Process index %d (%s) at line %d
+After insertion: Will process index %d (%s) at line %d instead
+Solution: Insert new author at index %d (line %d) to be processed next
+Don't insert at index %d - it will be skipped!
+`,
+			index, authors[index].Name, lineNumber,
+			simulatedIndex, authors[simulatedIndex].Name, getAuthorLineNumber(simulatedIndex),
+			simulatedIndex, getAuthorLineNumber(simulatedIndex),
+			index)
+	}
+}
+
+func getAuthorLineNumber(index int) int {
+	authorType := reflect.TypeOf(Author{})
+	fieldCount := authorType.NumField()
+
+	linesPerAuthor := fieldCount + 2
+
+	return linesPerAuthor*index + 2
 }
 
 func getAuthorToProcess(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) ([]Author, int, error) {

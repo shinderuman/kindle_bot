@@ -508,7 +508,7 @@ func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey 
 		return 0, false, time.Time{}, fmt.Errorf("no items available")
 	}
 
-	index, nextExecutionTime := getIndexAndNextExecutionTime(itemCount, cycleDays)
+	index, nextExecutionTime := GetIndexAndNextExecutionTime(itemCount, cycleDays)
 
 	if !IsLambda() {
 		return index, true, nextExecutionTime, nil
@@ -531,7 +531,7 @@ func ProcessSlot(cfg aws.Config, itemCount int, cycleDays float64, prevIndexKey 
 	return index, true, nextExecutionTime, nil
 }
 
-func getIndexAndNextExecutionTime(itemCount int, cycleDays float64) (int, time.Time) {
+func GetIndexAndNextExecutionTime(itemCount int, cycleDays float64) (int, time.Time) {
 	if itemCount <= 0 {
 		return 0, time.Now()
 	}
