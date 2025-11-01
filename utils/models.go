@@ -15,6 +15,8 @@ type Config struct {
 	S3PrevIndexNewReleaseObjectKey    string `json:"S3PrevIndexNewReleaseObjectKey"`
 	S3PrevIndexPaperToKindleObjectKey string `json:"S3PrevIndexPaperToKindleObjectKey"`
 	S3PrevIndexSaleCheckerObjectKey   string `json:"S3PrevIndexSaleCheckerObjectKey"`
+	S3CheckerConfigObjectKey          string `json:"S3CheckerConfigObjectKey"`
+	S3AmazonAffiliateAuthObjectKey    string `json:"S3AmazonAffiliateAuthObjectKey"`
 	S3Region                          string `json:"S3Region"`
 	AmazonPartnerTag                  string `json:"AmazonPartnerTag"`
 	AmazonAccessKey                   string `json:"AmazonAccessKey"`
@@ -27,7 +29,6 @@ type Config struct {
 	SlackNoticeChannel                string `json:"SlackNoticeChannel"`
 	SlackErrorChannel                 string `json:"SlackErrorChannel"`
 	GitHubToken                       string `json:"GitHubToken"`
-	S3CheckerConfigObjectKey          string `json:"S3CheckerConfigObjectKey"`
 }
 
 type CheckerConfigs struct {

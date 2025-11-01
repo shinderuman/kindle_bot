@@ -10,6 +10,7 @@
 	"S3PrevIndexPaperToKindleObjectKey": "prev_index_paper_to_kindle.txt",
 	"S3PrevIndexSaleCheckerObjectKey": "prev_index_sale_checker.txt",
 	"S3CheckerConfigObjectKey": "checker_configs.json",
+	"S3AmazonAffiliateAuthObjectKey": "amazon-affiliate-auth.js",
 	"S3Region": "ap-northeast-1",
 	"AmazonPartnerTag": "your-partner-tag",
 	"AmazonAccessKey": "YOUR_AMAZON_ACCESS_KEY",

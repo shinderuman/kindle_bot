@@ -102,6 +102,7 @@ func initConfig() error {
 				S3PrevIndexPaperToKindleObjectKey: paramMap["S3_PREV_INDEX_PAPER_TO_KINDLE_OBJECT_KEY"],
 				S3PrevIndexSaleCheckerObjectKey:   paramMap["S3_PREV_INDEX_SALE_CHECKER_OBJECT_KEY"],
 				S3CheckerConfigObjectKey:          paramMap["S3_CHECKER_CONFIG_OBJECT_KEY"],
+				S3AmazonAffiliateAuthObjectKey:    paramMap["S3_AMAZON_AFFILIATE_AUTH_OBJECT_KEY"],
 				S3Region:                          paramMap["S3_REGION"],
 				AmazonPartnerTag:                  paramMap["AMAZON_PARTNER_TAG"],
 				AmazonAccessKey:                   paramMap["AMAZON_ACCESS_KEY"],
