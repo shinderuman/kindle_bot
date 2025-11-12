@@ -57,6 +57,7 @@ func Run(process func() error) {
 			if reportFailure {
 				AlertToSlack(err, false)
 			} else {
+				log.Println("Error:", err)
 				err = nil
 			}
 		}
