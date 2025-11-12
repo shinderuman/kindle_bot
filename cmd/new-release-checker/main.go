@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -25,7 +24,16 @@ import (
 
 var (
 	yearMonthRegex = regexp.MustCompile(`\d{4}年\d{1,2}月`)
+	showNext       bool
+	organize       bool
 )
+
+func init() {
+	flag.BoolVar(&showNext, "show-next", false, "Show next processing target and insertion simulation")
+	flag.BoolVar(&showNext, "n", false, "Show next processing target and insertion simulation (shorthand)")
+	flag.BoolVar(&organize, "organize", false, "Organize and sort the author list")
+	flag.BoolVar(&organize, "o", false, "Organize and sort the author list (shorthand)")
+}
 
 type Author struct {
 	Name               string    `json:"Name"`
@@ -36,6 +44,7 @@ type Author struct {
 }
 
 func main() {
+	flag.Parse()
 	utils.Run(process)
 }
 
@@ -52,6 +61,10 @@ func process() error {
 
 	if shouldShowNext() {
 		return displayNextTarget(cfg, checkerConfigs)
+	}
+
+	if shouldOrganizeAuthors() {
+		return organizeAuthorList(cfg, checkerConfigs)
 	}
 
 	if !checkerConfigs.NewReleaseChecker.Enabled && utils.IsLambda() {
@@ -81,11 +94,7 @@ func process() error {
 }
 
 func shouldShowNext() bool {
-	flagSet := flag.NewFlagSet("show-next", flag.ExitOnError)
-	showNext := flagSet.Bool("show-next", false, "Show next processing target and insertion simulation")
-	flagSet.BoolVar(showNext, "n", false, "Show next processing target and insertion simulation (shorthand)")
-	flagSet.Parse(os.Args[1:])
-	return *showNext
+	return showNext
 }
 
 func displayNextTarget(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) error {
@@ -106,6 +115,40 @@ func displayNextTarget(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) err
 
 	printNextTargetInfo(authors, index, nextExecutionTime, checkerConfigs.NewReleaseChecker.CycleDays)
 
+	return nil
+}
+
+func shouldOrganizeAuthors() bool {
+	return organize
+}
+
+func organizeAuthorList(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) error {
+	originalAuthors, err := fetchAuthors(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch authors from S3: %w", err)
+	}
+
+	if len(originalAuthors) == 0 {
+		fmt.Println("No authors found")
+		return nil
+	}
+
+	authors := sortUniqueAuthors(originalAuthors)
+
+	if reflect.DeepEqual(originalAuthors, authors) {
+		fmt.Println("No changes needed")
+		return nil
+	}
+
+	if err := saveAuthors(cfg, authors); err != nil {
+		return fmt.Errorf("failed to save authors to S3: %w", err)
+	}
+
+	if err := updateGist(authors, checkerConfigs); err != nil {
+		return fmt.Errorf("failed to update gist: %w", err)
+	}
+
+	fmt.Printf("Organized %d authors\n", len(authors))
 	return nil
 }
 

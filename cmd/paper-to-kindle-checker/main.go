@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,10 +20,17 @@ import (
 )
 
 var (
-	titleCleanRegex = regexp.MustCompile(`[\(\)（）【】〔〕：:]|\s*[0-9０-９]`)
+	titleCleanRegex = regexp.MustCompile(`[\(\)（）【〕〕：:]|\s*[0-9０-９]`)
+	organize        bool
 )
 
+func init() {
+	flag.BoolVar(&organize, "organize", false, "Organize and sort the book list")
+	flag.BoolVar(&organize, "o", false, "Organize and sort the book list (shorthand)")
+}
+
 func main() {
+	flag.Parse()
 	utils.Run(process)
 }
 
@@ -34,6 +43,10 @@ func process() error {
 	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
+	}
+
+	if shouldOrganizeList() {
+		return organizeBookList(cfg, checkerConfigs)
 	}
 
 	if !checkerConfigs.PaperToKindleChecker.Enabled && utils.IsLambda() {
@@ -59,6 +72,41 @@ func process() error {
 
 	utils.PutMetric(cfg, "KindleBot/PaperToKindleChecker", "SlotSuccess")
 
+	return nil
+}
+
+func shouldOrganizeList() bool {
+	return organize
+}
+
+func organizeBookList(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) error {
+	originalBooks, err := fetchPaperBooks(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to fetch books from S3: %w", err)
+	}
+
+	if len(originalBooks) == 0 {
+		fmt.Println("No books found")
+		return nil
+	}
+
+	books := utils.UniqueASINs(originalBooks)
+	utils.SortByReleaseDate(books)
+
+	if reflect.DeepEqual(originalBooks, books) {
+		fmt.Println("No changes needed")
+		return nil
+	}
+
+	if err := savePaperBooks(cfg, books); err != nil {
+		return fmt.Errorf("failed to save books to S3: %w", err)
+	}
+
+	if err := utils.UpdateBookGist(checkerConfigs.PaperToKindleChecker.GistID, checkerConfigs.PaperToKindleChecker.GistFilename, books); err != nil {
+		return fmt.Errorf("failed to update gist: %w", err)
+	}
+
+	fmt.Printf("Organized %d books\n", len(books))
 	return nil
 }
 
