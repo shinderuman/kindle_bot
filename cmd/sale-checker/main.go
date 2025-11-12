@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"reflect"
@@ -26,6 +27,10 @@ func process() error {
 	checkerConfigs, err := utils.FetchCheckerConfigs(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
+	}
+
+	if shouldOrganizeList() {
+		return organizeBookList(cfg, checkerConfigs)
 	}
 
 	if !checkerConfigs.SaleChecker.Enabled && utils.IsLambda() {
@@ -87,6 +92,44 @@ func process() error {
 		return fmt.Errorf("failed to clear upcoming books: %w", err)
 	}
 
+	return nil
+}
+
+func shouldOrganizeList() bool {
+	organize := flag.Bool("organize", false, "Organize and sort the book list")
+	flag.BoolVar(organize, "o", false, "Organize and sort the book list (shorthand)")
+	flag.Parse()
+	return *organize
+}
+
+func organizeBookList(cfg aws.Config, checkerConfigs *utils.CheckerConfigs) error {
+	originalBooks, err := utils.FetchASINs(cfg, utils.EnvConfig.S3UnprocessedObjectKey)
+	if err != nil {
+		return fmt.Errorf("failed to fetch books from S3: %w", err)
+	}
+
+	if len(originalBooks) == 0 {
+		fmt.Println("No books found")
+		return nil
+	}
+
+	books := utils.UniqueASINs(originalBooks)
+	utils.SortByReleaseDate(books)
+
+	if reflect.DeepEqual(originalBooks, books) {
+		fmt.Println("No changes needed")
+		return nil
+	}
+
+	if err := utils.SaveASINs(cfg, books, utils.EnvConfig.S3UnprocessedObjectKey); err != nil {
+		return fmt.Errorf("failed to save books to S3: %w", err)
+	}
+
+	if err := utils.UpdateBookGist(checkerConfigs.SaleChecker.GistID, checkerConfigs.SaleChecker.GistFilename, books); err != nil {
+		return fmt.Errorf("failed to update gist: %w", err)
+	}
+
+	fmt.Printf("Organized %d books\n", len(books))
 	return nil
 }
 
