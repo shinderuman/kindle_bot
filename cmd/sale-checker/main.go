@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -96,9 +97,10 @@ func process() error {
 }
 
 func shouldOrganizeList() bool {
-	organize := flag.Bool("organize", false, "Organize and sort the book list")
-	flag.BoolVar(organize, "o", false, "Organize and sort the book list (shorthand)")
-	flag.Parse()
+	flagSet := flag.NewFlagSet("organize", flag.ExitOnError)
+	organize := flagSet.Bool("organize", false, "Organize and sort the book list")
+	flagSet.BoolVar(organize, "o", false, "Organize and sort the book list (shorthand)")
+	flagSet.Parse(os.Args[1:])
 	return *organize
 }
 

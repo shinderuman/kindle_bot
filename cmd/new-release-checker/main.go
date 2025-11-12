@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -80,9 +81,10 @@ func process() error {
 }
 
 func shouldShowNext() bool {
-	showNext := flag.Bool("show-next", false, "Show next processing target and insertion simulation")
-	flag.BoolVar(showNext, "n", false, "Show next processing target and insertion simulation (shorthand)")
-	flag.Parse()
+	flagSet := flag.NewFlagSet("show-next", flag.ExitOnError)
+	showNext := flagSet.Bool("show-next", false, "Show next processing target and insertion simulation")
+	flagSet.BoolVar(showNext, "n", false, "Show next processing target and insertion simulation (shorthand)")
+	flagSet.Parse(os.Args[1:])
 	return *showNext
 }
 
