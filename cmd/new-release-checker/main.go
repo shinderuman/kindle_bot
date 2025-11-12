@@ -49,7 +49,6 @@ func process() error {
 		return fmt.Errorf("failed to fetch checker configs: %w", err)
 	}
 
-	// フラグチェックを早期に行う
 	if shouldShowNext() {
 		return displayNextTarget(cfg, checkerConfigs)
 	}
